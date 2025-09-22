@@ -6,4 +6,4 @@ npm install
 
 npm start
 
-静的デプロイ用[https://github.com/ajgpw/youtube.git](https://github.com/ajgpw/youtube.git)
+静的デプロイ用[https://github.com/ajgpw/youtube.git](https://github.com/ajgpw/youtube.git)←こっちのほうが更新頻度高い。ある程度溜まったらこっちも更新するけど
