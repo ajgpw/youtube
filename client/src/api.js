@@ -8,6 +8,9 @@ const API_URLS = [
   "https://script.google.com/macros/s/AKfycbzYHLmomiijxiaNGcdLY_ddDZIi3QTK408EQDEpsa82FtIt4VTGRuC8ovZxM7kUSrC2/exec",
   "https://script.google.com/macros/s/AKfycbygQyKvfPnMvY8sdOkKow6NzO91dBhQFy0Vex3qVq1tWnqKodNbFVKQhALWWBLXcRTF/exec",
   "https://script.google.com/macros/s/AKfycbyh11OPhy_xaZOPVz3uKVFy8qdN05hVRrpKrNXuIeogsTLwiQQYBUhKZMniStVhg7QF-A/exec",
+  "https://script.google.com/macros/s/AKfycbwZjWOfb6U3-WJEPY7bH72BX1Oq5ZYIsX0X_oSCM7XsZTL_XR52jr6pHCKsfXlmEqIO/exec",
+  "https://script.google.com/macros/s/AKfycbw5KoedRHydSOSer3QPHAEBtOJEZWTrqZ_536rjYA6JClQgxHO6ZaqsW0gE2Nm2XQ48yw/exec",
+  "https://script.google.com/macros/s/AKfycbywNoIJAH0ZHZ1U_IxVPWWvMTNwrUpXqEi-0j2V-RGNpx9EHDBKJ1XJw9RRuj0_uNrz/exec",
   "https://script.google.com/macros/s/AKfycbyjbFpmnhvs0BSorjNuIoZkIOsiH7OsovlYkl3DBI9SA3_19jOBqjr999WA_12HYxhT0A/exec"
 ];
 
