@@ -20,7 +20,10 @@
         <div v-else class="skeleton avatar"></div>
       </div>
       <div class="info">
-        <h1 v-if="!loadingChannel" style="font-size: 2.1em; margin-block-end: 0.4em;">{{ channel.title }}</h1>
+        <div v-if="!loadingChannel" style="display:flex;align-items:center;gap:12px;">
+          <h1 style="font-size: 2.1em; margin-block-end: 0.4em; margin:0">{{ channel.title }}</h1>
+          <button class="subscribe-btn" :class="{ subscribed }" @click="toggleSubscribeOnChannel" :title="subscribed ? '登録解除' : '登録'">{{ subscribed ? '登録解除' : '登録' }}</button>
+        </div>
         <div v-else class="skeleton skeleton-text" style="width: 60%; height: 2.1em; margin-bottom: 0.4em;"></div>
         <p v-if="!loadingChannel" class="video-count">{{ channel.videoCount }}</p>
         <div v-else class="skeleton skeleton-text" style="width: 30%; height: 1.2em; margin-bottom: 0.4em;"></div>
@@ -195,18 +198,60 @@
 
 <script setup>
 import settingIcon from '/Image/linkicon.txt?raw'
-import { ref, onMounted, watch } from "vue";
+import { ref, onMounted, watch, computed, onUnmounted } from "vue";
 import { useRoute } from "vue-router";
 import VideoList from "@/components/Playlist.vue";
 import { apiRequest } from "@/services/requestManager";
+import subscriptionManager from '@/utils/subscriptionManager';
+
+const props = defineProps({ channelId: String });
 
 // ルートパラメータ
 const route = useRoute();
+const effectiveId = computed(() => props.channelId || route.params.id);
 
 // 状態
 const channel = ref(null);
 const tab = ref("home");
 const loadingChannel = ref(false);
+const subscribed = ref(false);
+
+function updateSubscribed() {
+  subscribed.value = subscriptionManager.isSubscribed(effectiveId.value);
+}
+
+async function toggleSubscribeOnChannel() {
+  try {
+    const id = effectiveId.value;
+    if (!id) return;
+    if (subscriptionManager.isSubscribed(id)) {
+      subscriptionManager.removeSubscription(id);
+      subscribed.value = false;
+      try { window.dispatchEvent(new CustomEvent('subscriptions-changed')); } catch(e){}
+    } else {
+      // Optimistically add (use avatar URL if present so the icon displays immediately)
+      const initialIcon = channel.value?.avatar || null;
+      subscriptionManager.addSubscription({ id, name: channel.value?.title || '', icon: initialIcon });
+      subscribed.value = true;
+      try { window.dispatchEvent(new CustomEvent('subscriptions-changed')); } catch(e){}
+      // Fetch icon async
+      (async () => {
+        try {
+          const icon = channel.value?.avatar ? await subscriptionManager.fetchImageAsBase64(channel.value.avatar) : null;
+          if (icon) {
+            subscriptionManager.updateSubscription(id, { icon });
+          } else if (channel.value?.avatar) {
+            subscriptionManager.updateSubscription(id, { icon: channel.value.avatar });
+          }
+        } catch (e) {
+          console.warn('icon fetch failed', e);
+        }
+      })();
+    }
+  } catch (e) {
+    console.error('toggleSubscribeOnChannel error', e);
+  }
+}
 
 // デフォルト画像
 const defaultAvatar = "/default-avatar.png";
@@ -251,19 +296,29 @@ function reloadChannel() {
 
 // 初回取得
 onMounted(() => {
-  fetchChannelInfo(route.params.id);
+  fetchChannelInfo(effectiveId.value);
+  updateSubscribed();
+  window.addEventListener('subscriptions-changed', updateSubscribed);
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'subscriptions_v1') updateSubscribed();
+  });
 });
 
-// ルートID変更時
+// ID変更時（prop かルートどちらでも追跡）
 watch(
-  () => route.params.id,
+  () => effectiveId.value,
   (newId, oldId) => {
     if (newId !== oldId) {
       fetchChannelInfo(newId);
+      updateSubscribed();
       window.scrollTo(0, 0);
     }
   }
 );
+
+onUnmounted(() => {
+  window.removeEventListener('subscriptions-changed', updateSubscribed);
+});
 
 // channel変更時にタイトル更新
 watch(
@@ -282,6 +337,19 @@ watch(
   font-size: 21px;
 }
 
+.subscribe-btn{
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.subscribe-btn.subscribed{
+  background: var(--accent-color);
+  color: var(--on-accent);
+  border-color: rgba(0,0,0,0.05);
+}
 .page-end {
   text-align: center;
 }

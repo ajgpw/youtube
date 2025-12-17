@@ -29,6 +29,15 @@
           @select="selectStreamType"
           style="margin-left: auto"
         />
+        <button
+          class="subscribe-btn"
+          :class="{ subscribed: subscribedLocal }"
+          @click.stop="toggleSubscribe"
+          :title="subscribedLocal ? '登録解除' : '登録'"
+          style="margin-left: 12px;"
+        >
+          {{ subscribedLocal ? '登録解除' : '登録' }}
+        </button> 
       </div>
       <div
         style="
@@ -106,6 +115,7 @@ import VideoDescription from "@/components/VideoDescription.vue";
 import RelatedList from "@/components/RelatedList.vue";
 import AutoplayNotification from "@/components/AutoplayNotification.vue";
 import PlaylistModal from "@/components/PlaylistModal.vue";
+import subscriptionManager from "@/utils/subscriptionManager";
 
 export default {
   components: {
@@ -137,6 +147,7 @@ export default {
       showPlaylistModal: false,
       nextContinuationToken: null,
       loadingMore: false,
+      subscribedLocal: false,
     };
   },
   computed: {
@@ -166,6 +177,9 @@ export default {
     },
     authorThumbnailUrl() {
       return this.video?.author?.thumbnail || "情報なし";
+    },
+    isSubscribedComputed() {
+      return subscriptionManager.isSubscribed(this.authorId);
     },
     descriptionText() {
       return this.video?.description?.text || "情報なし";
@@ -304,6 +318,55 @@ export default {
       
       console.log(`  No pattern matched`);
       return 0;
+    },
+
+    async toggleSubscribe() {
+      try {
+        const id = this.authorId;
+        console.debug('toggleSubscribe clicked', { id, subscribedBefore: subscriptionManager.isSubscribed(id) });
+        if (!id || id === '情報なし') return;
+        if (subscriptionManager.isSubscribed(id)) {
+          // Unsubscribe immediately
+          subscriptionManager.removeSubscription(id);
+          this.subscribedLocal = false;
+          try { window.dispatchEvent(new CustomEvent('subscriptions-changed')); } catch(e){}
+          console.debug('after remove, subscriptions', subscriptionManager.getSubscriptions());
+          this.autoplayNotificationMessage = 'チャンネル登録を解除しました';
+          this.showAutoplayNotification = true;
+          setTimeout(() => (this.showAutoplayNotification = false), 2000);
+        } else {
+          // Optimistically add subscription immediately (show thumbnail URL first if available)
+          const initialIcon = (this.authorThumbnailUrl && this.authorThumbnailUrl !== '情報なし') ? this.authorThumbnailUrl : null;
+          subscriptionManager.addSubscription({ id, name: this.authorName, icon: initialIcon });
+          this.subscribedLocal = true;
+          try { window.dispatchEvent(new CustomEvent('subscriptions-changed')); } catch(e){}
+          console.debug('after add, subscriptions', subscriptionManager.getSubscriptions());
+          this.autoplayNotificationMessage = 'チャンネルを登録しました';
+          this.showAutoplayNotification = true;
+          setTimeout(() => (this.showAutoplayNotification = false), 2000);
+
+          // Fetch icon asynchronously and update subscription when available
+          (async () => {
+            try {
+              const fetchedIcon = await subscriptionManager.fetchImageAsBase64(this.authorThumbnailUrl);
+              if (fetchedIcon) {
+                subscriptionManager.updateSubscription(id, { icon: fetchedIcon });
+              } else if (this.authorThumbnailUrl && this.authorThumbnailUrl !== '情報なし') {
+                // If base64 fetch failed, fall back to original URL so image still shows
+                subscriptionManager.updateSubscription(id, { icon: this.authorThumbnailUrl });
+              }
+            } catch (e) {
+              console.warn('icon fetch failed', e);
+            }
+          })();
+        }
+        // ensure we re-sync shortly after in case of timing issues
+        setTimeout(() => {
+          try { this.subscribedLocal = subscriptionManager.isSubscribed(this.authorId); } catch (e) {}
+        }, 50);
+      } catch (e) {
+        console.error('toggleSubscribe error', e);
+      }
     },
     setCookieSafe(name, value, seconds) {
       try {
@@ -452,6 +515,12 @@ export default {
 
         this.video = data;
         this.nextContinuationToken = data["Related-videos"]?.nextContinuationToken || null;
+        // Sync subscribed state immediately after we have the author id
+        try {
+          this.subscribedLocal = subscriptionManager.isSubscribed(this.authorId);
+        } catch (e) {
+          console.warn('subscribed sync error', e);
+        }
         
         // 履歴に保存（非同期で実行、エラーは無視）
         try {
@@ -543,14 +612,38 @@ export default {
         this.isDropdownOpen = false;
       }
     },
+    onSubscriptionsChanged() {
+      try {
+        // Update local subscribed flag from storage so UI keeps consistent
+        const val = subscriptionManager.isSubscribed(this.authorId);
+        console.debug('subscriptions-changed received on watch page', { id: this.authorId, subscribed: val });
+        this.subscribedLocal = val;
+      } catch (e) { console.warn('onSubscriptionsChanged error', e); }
+    },
   },
   mounted() {
     document.addEventListener("click", this.handleClickOutside);
     document.addEventListener("keydown", this.handleEscape);
+    window.addEventListener('subscriptions-changed', this.onSubscriptionsChanged);
+
+    // initialize local subscribed state
+    this.subscribedLocal = subscriptionManager.isSubscribed(this.authorId);
+
+    // watch for storage changes from other tabs
+    this._storageHandler = (e) => {
+      if (e.key === 'subscriptions_v1') {
+        const val = subscriptionManager.isSubscribed(this.authorId);
+        console.debug('storage event on watch page', { key: e.key, subscribed: val });
+        this.subscribedLocal = val;
+      }
+    };
+    window.addEventListener('storage', this._storageHandler);
   },
   beforeUnmount() {
     document.removeEventListener("click", this.handleClickOutside);
     document.removeEventListener("keydown", this.handleEscape);
+    window.removeEventListener('subscriptions-changed', this.onSubscriptionsChanged);
+    window.removeEventListener('storage', this._storageHandler);
     if (this._autoplayTimer) {
       clearTimeout(this._autoplayTimer);
       this._autoplayTimer = null;
@@ -567,6 +660,10 @@ export default {
       if (newTitle && newTitle !== "情報なし") {
         document.title = newTitle;
       }
+    },
+    authorId(newVal) {
+      // keep local subscribed in-sync when author changes
+      this.subscribedLocal = subscriptionManager.isSubscribed(newVal);
     },
   },
 };
@@ -666,6 +763,20 @@ p {
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.subscribe-btn{
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.subscribe-btn.subscribed{
+  background: var(--accent-color);
+  color: var(--on-accent);
+  border-color: rgba(0,0,0,0.05);
 }
 
 .page-link {

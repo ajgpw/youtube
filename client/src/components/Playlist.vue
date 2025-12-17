@@ -8,8 +8,7 @@
       <h2 class="playlist-title" style="color: var(--text-primary);">{{ playlist.title }}</h2>
       <p class="playlist-meta" style="color: var(--text-primary);">
         動画本数: {{ playlist.totalItems }}
-        <span class="views" v-if="displayType !== 'watch'">｜ {{ playlist.views }}</span>
-      </p>
+        <span  class="views"  v-if="displayType !== 'watch' && playlist.views">  ｜ {{ playlist.views }}</span>      </p>
     </template>
 
     <div
