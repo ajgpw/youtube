@@ -60,8 +60,8 @@
         }
       }
     </script>
-    <script type="module" crossorigin src="https://cdn.jsdelivr.net/gh/ajgpw/youtube@main/client/dist/assets/index-BSvQVXth.js"></script>
-    <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/ajgpw/youtube@main/client/dist/assets/index-BP610RE0.css">
+    <script type="module" crossorigin src="https://cdn.jsdelivr.net/gh/ajgpw/youtube@main/client/dist/assets/index-DtWTm52C.js"></script>
+    <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/ajgpw/youtube@main/client/dist/assets/index-CCR0sonS.css">
   </head>
 
   <body>
