@@ -29,7 +29,10 @@ const API_URLS = [
   "https://script.google.com/macros/s/AKfycbxgX4zORG-FhJo4BxVwBtZsQP8i8Iode81Y4VtdPtzoI5JJ0yM1JXAiJ3skZUHB8A8M/exec",
   "https://script.google.com/macros/s/AKfycbyGoeb6FENHGbUZH7tZ_-ZyS13MJ3DLQoLSBl2Gt6vJYIZqL-QTTwd2gJKfDo-QFrRW/exec",
   "https://script.google.com/macros/s/AKfycbx8DE5O814hhpobytdy8tnVoXWcTGMCynkA7hO9jDZNcWLehGpn4su1OUu8wZCZEd5_FA/exec",
-  "https://script.google.com/macros/s/AKfycbyZbXSvtk1p67JiXuC7YZlM9VkvMKPcaVTubhFU0Hic5KgmTWOGufOtxleLl6a9lZQ/exec"
+  "https://script.google.com/macros/s/AKfycbyZbXSvtk1p67JiXuC7YZlM9VkvMKPcaVTubhFU0Hic5KgmTWOGufOtxleLl6a9lZQ/exec",
+  "https://script.google.com/macros/s/AKfycbwz-iwbMIE-jVWZ35Er0dNkgOlYcsBqLYImEV4iGRwHF-yntsGTO82atQSxHtwf50u0/exec",
+  "https://script.google.com/macros/s/AKfycbyu4gQvX98JMZTiIwrgXpIb_E9bvfpFBKHPGqjoOQ0HpCeH6IoIUK50UmH2v0cJhJrt/exec",
+  "https://script.google.com/macros/s/AKfycby6JzzPf91tIh76M2r4kLemeQy3z68JgXJ8OCpKkjb61qCrq1QbW590t5Qnvxu4jOvj3Q/exec"
 ];
 
 // ランダムに1つ返す関数
