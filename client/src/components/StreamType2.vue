@@ -581,6 +581,47 @@ function clearType2SrcRepeated() {
   }, 200);
 }
 
+function reloadSrc() {
+  const sel = selectedQuality.value;
+  const entry = sources.value[sel];
+  if (!entry) return;
+
+  if (entry.url && useM3u8Playback()) {
+    // HLS
+    if (videoRef.value) {
+      videoRef.value.src = entry.url;
+      videoRef.value.load();
+    }
+  } else if (entry.video) {
+    // video+audio
+    if (videoRef.value && entry.video.url) {
+      const source = videoRef.value.querySelector('source');
+      if (source) source.src = entry.video.url;
+      videoRef.value.load();
+    }
+    if (audioRef.value && entry.audio.url) {
+      const source = audioRef.value.querySelector('source');
+      if (source) source.src = entry.audio.url;
+      audioRef.value.load();
+    }
+  }
+}
+
+function checkPlayback() {
+  if (videoRef.value) {
+    videoRef.value.play().catch(() => {
+      console.log('Video playback failed, reloading src');
+      reloadSrc();
+    });
+  }
+  if (audioRef.value) {
+    audioRef.value.play().catch(() => {
+      console.log('Audio playback failed, reloading src');
+      reloadSrc();
+    });
+  }
+}
+
 // HLS 切替時の共通セットアップ（再生位置を維持）
 function applyHlsSetup(prevTime = 0) {
   isQualitySwitching.value = true;
@@ -629,6 +670,10 @@ function applyHlsSetup(prevTime = 0) {
         scheduleAutoplay();
       }
     } catch (e) {}
+    // Add playback check for HLS
+    if (videoRef.value) {
+      videoRef.value.addEventListener('canplay', checkPlayback, { once: true });
+    }
   });
 }
 
@@ -702,6 +747,13 @@ watch(selectedQuality, () => {
           scheduleAutoplay();
         }
       } catch (e) {}
+      // Add playback check for video+audio
+      if (videoRef.value) {
+        videoRef.value.addEventListener('canplay', checkPlayback, { once: true });
+      }
+      if (audioRef.value) {
+        audioRef.value.addEventListener('canplay', checkPlayback, { once: true });
+      }
       setTimeout(() => {
         try {
           if (videoRef.value) videoRef.value.currentTime = prevTime;
@@ -868,6 +920,10 @@ async function fetchStreamUrl(id) {
             window.addEventListener('touchstart', onFirstUserGesture, { once: true });
           }
         } catch (e) {}
+        // Add playback check
+        if (videoRef.value) {
+          videoRef.value.addEventListener('canplay', checkPlayback, { once: true });
+        }
       } else {
         // Use legacy video+audio synchronization if video URL exists
         if (selEntry?.video) {
@@ -895,6 +951,13 @@ async function fetchStreamUrl(id) {
               window.addEventListener('touchstart', onFirstUserGesture, { once: true });
             }
           } catch (e) {}
+          // Add playback check
+          if (videoRef.value) {
+            videoRef.value.addEventListener('canplay', checkPlayback, { once: true });
+          }
+          if (audioRef.value) {
+            audioRef.value.addEventListener('canplay', checkPlayback, { once: true });
+          }
         }
       }
     });

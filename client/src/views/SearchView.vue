@@ -1,7 +1,7 @@
 <template>
   <div>
     <!-- 通常読み込み中 -->
-    <div v-if="loading && !retrying" class="loading">読み込み中...</div>
+    <div v-if="loading || retrying" class="loading">{{ retrying ? "再読み込み中…" : "読み込み中…" }}</div>
 
     <!-- エラー表示 -->
     <div v-if="error" class="error">
@@ -69,6 +69,7 @@ export default {
       // 通常の検索呼び出しか再試行かでフラグ設定
       if (!this.retrying) this.loading = true;
       this.error = null;
+      this.videos = [];  // 検索開始時にクリア
 
       try {
         const data = await apiRequest({
@@ -77,6 +78,14 @@ export default {
           timeout: 15000,
           jsonpFallback: false,
         });
+
+        // レスポンスがエラーオブジェクトの場合
+        if (data && typeof data === 'object' && data.error) {
+          this.error = "メインサーバーから無効な応答が帰ってきました";
+          this.videos = [];
+          return;
+        }
+
         this.videos = Array.isArray(data.results) ? data.results : (Array.isArray(data) ? data : []);
       } catch (e) {
         console.warn("fetchSearchResults error:", e);

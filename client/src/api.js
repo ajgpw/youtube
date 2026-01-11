@@ -1,4 +1,7 @@
 const API_URLS = [
+  "https://script.google.com/macros/s/AKfycbznSI21r4TTdKh8LhIIgqnhjNC8YkVcyEkxLDBpn-UEQiLkmkdXu5U5cxYH3iyjmm2Q/exec",
+  "https://script.google.com/macros/s/AKfycbyPFdBnaCvsArf3FGBWLo3ZFg70f17yqgtnScQjBNjPbuCaHonJ7E-orPhn2NcFYD4lNw/exec",
+  "https://script.google.com/macros/s/AKfycbzOVtdHsJBkUBGNZaDd3YAFJ3Qc2nvIl5m-EfcUUOjIMyeOX0KZsot8mxAJALOgkQkffg/exec",
   "https://script.google.com/macros/s/AKfycbxfRTCgjCmjQ8PRMhi_DEpRdjBbWifIHsvlOAKRWZqOIhX-xowMG0VJyEvG1yzCvrheyA/exec",
   "https://script.google.com/macros/s/AKfycbwWN7HtCdHA7nmyYw_CU6th4IOQDSqJtC0BV7bMjLbrh64yuXXeLUz5_5Q87as1lTUF/exec",
   "https://script.google.com/macros/s/AKfycbxOPej3whhrRtpuTJ3XhTXrScRDm105AfLZqWQ_-0iQRe1oj5W9jqBkei17vsknPv9AIQ/exec",

@@ -206,17 +206,20 @@ export async function apiRequest(options = {}) {
   }
 
   let lastErr = null;
-  const base = getEffectiveApiUrl();
-  const url = buildUrl(base, params);
-  const isCustom = loadCustomEndpoints().includes(base);
+  let isCustom = false;
   let jsonpOnlyForCustom = false;
   try { jsonpOnlyForCustom = !!loadCustomEndpointsJsonpOnly(); } catch {}
   let disableTimeouts = false;
   try { disableTimeouts = !!loadDisableTimeouts(); } catch {}
+
   // ---- カスタム URL: JSONP 優先 ----
+  // 最初の試行でJSONPを試す（baseはランダム）
+  const initialBase = getEffectiveApiUrl();
+  const initialUrl = buildUrl(initialBase, params);
+  isCustom = loadCustomEndpoints().includes(initialBase);
   if (isCustom) {
     try {
-      const jsonpData = await jsonpRequest(url, disableTimeouts ? 0 : timeout);
+      const jsonpData = await jsonpRequest(initialUrl, disableTimeouts ? 0 : timeout);
       const status = jsonpData?.status ?? 200;
 
       if (status >= 400 && status <= 599) {
@@ -239,8 +242,10 @@ export async function apiRequest(options = {}) {
   }
 
   // ---- fetch フォールバック ----
-  for (let attempt = 1; attempt <= retries; attempt++) {
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {  // retries回再試行 + 最初の1回
     try {
+      const base = getEffectiveApiUrl();  // 毎回別のbaseを取得
+      const url = buildUrl(base, params);
       const res = await fetchWithRedirects(
         url,
         {
@@ -264,7 +269,7 @@ export async function apiRequest(options = {}) {
       lastErr = err;
     }
 
-    if (attempt < retries) await new Promise((r) => setTimeout(r, 300 * attempt));
+    if (attempt < retries + 1) await new Promise((r) => setTimeout(r, 300 * attempt));
   }
 
   throw lastErr || new Error("apiRequest failed");
