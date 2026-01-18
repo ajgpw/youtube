@@ -45,11 +45,11 @@ export function getEffectiveApiUrl() {
   try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) customs = JSON.parse(raw); } catch {}
 
   let base;
-  if (mode === "existing") base = apiurl();
-  else if (mode === "custom") base = customs.length ? customs[Math.floor(Math.random() * customs.length)] : apiurl();
+  if (mode === "existing") base = "/";
+  else if (mode === "custom") base = customs.length ? customs[Math.floor(Math.random() * customs.length)] : "http://localhost:3000";
   else {
-    const pool = [...customs, apiurl()];
-    base = pool.length ? pool[Math.floor(Math.random() * pool.length)] : apiurl();
+    const pool = [...customs, "/"];
+    base = pool.length ? pool[Math.floor(Math.random() * pool.length)] : "http://localhost:3000";
   }
 
   try {

@@ -12,17 +12,6 @@
 
       <!-- コンテンツ -->
       <div class="settings-modal-content">
-        <!-- API エンドポイント設定 -->
-        <section class="settings-section">
-          <h3>API エンドポイント設定</h3>
-
-          <!-- API モード選択 -->
-          <div class="mode-group">
-            <label><input type="radio" :checked="mode === 'existing'" @change="handleModeChange('existing')" /> 既存 API のみを使用</label>
-            <label><input type="radio" :checked="mode === 'custom'" @change="handleModeChange('custom')" /> カスタムのみを使用</label>
-            <label><input type="radio" :checked="mode === 'both'" @change="handleModeChange('both')" /> 両方をランダムに使用</label>
-          </div>
-        </section>
 
         <!-- デフォルト再生方式 -->
         <section class="settings-section">
@@ -66,30 +55,6 @@
           <label><input type="radio" :checked="displayMode === 'dark'" @change="handleDisplayModeChange('dark')" /> ダークモード</label>
         </section>
 
-        <!-- カスタムエンドポイント -->
-        <section class="settings-section">
-          <h3>カスタムエンドポイント</h3>
-          <ul class="custom-list">
-            <li v-for="(url, i) in customEndpoints" :key="i">
-              <span class="endpoint-text">{{ url }}</span>
-              <button type="button" class="remove-btn" @click="removeEndpoint(i)" aria-label="削除">削除</button>
-            </li>
-            <li v-if="customEndpoints.length === 0">
-              <CustomEndpointsHelp />
-            </li>
-          </ul>
-
-          <div class="add-row">
-            <input
-              type="text"
-              :value="newEndpoint"
-              @input="handleNewEndpointChange($event.target.value)"
-              placeholder="https://siawaseok.duckdns.org/exec"
-            />
-            <button type="button" @click="addEndpoint">追加</button>
-          </div>
-        </section>
-        
         <!-- その他 -->
         <section class="settings-section">
           <h3>その他</h3>
