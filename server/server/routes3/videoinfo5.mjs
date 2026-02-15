@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { Agent as UndiciAgent } from "undici";
 
 /**
  * Expressアプリケーションの初期化
@@ -43,6 +44,45 @@ const REQUEST_HEADERS = {
   "sec-ch-ua-platform": '"Chrome OS"',
   "user-agent":
     "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
+};
+
+// Keep-Alive 用の undici.Agent
+const undiciAgent = new UndiciAgent({
+  connections: 16,
+  keepAliveTimeout: 60000,
+});
+
+/**
+ * サムネイル画像を Keep-Alive エージェント経由で取得し、base64 データURL を返します。
+ * 失敗した場合は null を返します。
+ * @param {string} url
+ * @returns {Promise<string|null>}
+ */
+const fetchImageAsBase64 = async (url) => {
+  if (!url) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const res = await fetch(url, {
+      dispatcher: undiciAgent,
+      headers: {
+        Referer: "https://www.youtube.com/",
+        "User-Agent": REQUEST_HEADERS["user-agent"],
+      },
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    const b = Buffer.from(buf);
+    const contentType = res.headers.get("content-type") || "image/jpeg";
+    return `data:${contentType};base64,${b.toString("base64")}`;
+  } catch (e) {
+    console.warn("fetchImageAsBase64 failed", e?.message || e);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 };
 
 /**
@@ -375,6 +415,29 @@ app.get("/api/video2/:id", async (req, res) => {
       const nextToken =
         result?.items?.find((i) => i.type === "continuation")?.token || null;
 
+      // --- thumbnails[0] を base64 に変換（Keep-Alive エージェントを利用） ---
+      try {
+        await Promise.all(
+          relatedVideosCompat.map(async (rv) => {
+            const thumbUrl = rv.thumbnail;
+            if (!thumbUrl) return;
+            const b64 = await fetchImageAsBase64(thumbUrl);
+            if (!b64) return;
+            if (Array.isArray(rv.thumbnails) && rv.thumbnails.length > 0) {
+              // サムネイル配列の先頭要素の url を base64 に置換
+              rv.thumbnails[0].url = b64;
+            }
+            // thumbnails[0] と同じ短縮プロパティも更新
+            rv.thumbnail = b64;
+          })
+        );
+      } catch (e) {
+        console.warn(
+          "Thumbnail base64 conversion (continuation) failed",
+          e?.message || e
+        );
+      }
+
       return res.json({
         id: videoId,
         title: "", // 追加読み込みのためタイトルは不要
@@ -479,6 +542,27 @@ app.get("/api/video2/:id", async (req, res) => {
             };
           })
           .filter(Boolean);
+
+        // --- thumbnails[0] を base64 に変換（Keep-Alive エージェントを利用） ---
+        try {
+          await Promise.all(
+            relatedVideos.map(async (rv) => {
+              const thumbUrl = rv.thumbnail;
+              if (!thumbUrl) return;
+              const b64 = await fetchImageAsBase64(thumbUrl);
+              if (!b64) return;
+              if (Array.isArray(rv.thumbnails) && rv.thumbnails.length > 0) {
+                rv.thumbnails[0].url = b64;
+              }
+              rv.thumbnail = b64;
+            })
+          );
+        } catch (e) {
+          console.warn(
+            "Thumbnail base64 conversion (initial) failed",
+            e?.message || e
+          );
+        }
       }
 
       // 2. メイン動画情報の処理 (Primary Info)
