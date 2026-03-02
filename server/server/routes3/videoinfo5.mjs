@@ -2,11 +2,13 @@ import express from "express";
 import cors from "cors";
 import { Agent as UndiciAgent } from "undici";
 
+// 26年2月7日のyoutubeのレスポンスを元に作成しました。
+
 /**
  * Expressアプリケーションの初期化
  */
 const app = express();
-const PORT = 3000;
+const PORT = 3012;
 
 // ==========================================
 // ミドルウェア設定
@@ -49,7 +51,7 @@ const REQUEST_HEADERS = {
 // Keep-Alive 用の undici.Agent
 const undiciAgent = new UndiciAgent({
   connections: 16,
-  keepAliveTimeout: 60000,
+  keepAliveTimeout: 6000,
 });
 
 /**
@@ -329,7 +331,15 @@ const fetchContinuationData = async (token) => {
  * IDパラメータには独自のエンコード形式が含まれる場合があります。
  */
 app.get("/api/video2/:id", async (req, res) => {
-  let videoId = req.params.id;
+  // パラメータがURLエンコードされている場合があるためデコードする
+  let rawVideoId = req.params.id;
+  try {
+    rawVideoId = decodeURIComponent(rawVideoId);
+  } catch (e) {
+    // デコード失敗時はそのまま
+  }
+  
+  let videoId = rawVideoId;
 
   // デフォルトパラメータ設定
   let continuationToken = req.query.token;
@@ -372,8 +382,10 @@ app.get("/api/video2/:id", async (req, res) => {
     const parts = videoId.split("==p==");
     videoId = parts[0];
     for (let i = 1; i < parts.length; i++) {
-      const [key, val] = parts[i].split("==i==");
-      checkParam(key, val);
+      if (parts[i].includes("==i==")) {
+        const [key, val] = parts[i].split("==i==");
+        checkParam(key, val);
+      }
     }
   }
 
@@ -394,17 +406,23 @@ app.get("/api/video2/:id", async (req, res) => {
           ?.map((item) => {
             if (item.type === "continuation") return null;
 
+            // IDが11文字ではない、かつ"RD"から始まる場合はメインの動画IDを使用する
+            let rvId = item.videoId;
+            if (rvId && rvId.length !== 11 && rvId.startsWith("RD")) {
+              rvId = videoId;
+            }
+
             return {
               type: item.playlistId ? "playlist" : "video",
-              videoId: item.videoId,
+              videoId: rvId,
               title: item.title,
               channelName: item.channel?.name || "",
               viewCountText: item.stats?.views || "",
               publishedTimeText: item.stats?.publishedTime || "",
               duration: item.badge?.text || null,
-              badge: item.badge?.text || null,
+              badge: null,
               thumbnails: item.thumbnails?.static || [],
-              thumbnail: item.thumbnails?.static?.[0]?.url || "", // Base64ではなくURLを使用
+              thumbnail: item.thumbnails?.static?.[0]?.url || null, // 一旦nullも許容
               channelAvatar: item.channel?.avatar || "",
               playlistId: item.playlistId,
             };
@@ -419,16 +437,26 @@ app.get("/api/video2/:id", async (req, res) => {
       try {
         await Promise.all(
           relatedVideosCompat.map(async (rv) => {
-            const thumbUrl = rv.thumbnail;
-            if (!thumbUrl) return;
-            const b64 = await fetchImageAsBase64(thumbUrl);
-            if (!b64) return;
-            if (Array.isArray(rv.thumbnails) && rv.thumbnails.length > 0) {
-              // サムネイル配列の先頭要素の url を base64 に置換
-              rv.thumbnails[0].url = b64;
+            let b64 = null;
+            if (rv.thumbnail) {
+              b64 = await fetchImageAsBase64(rv.thumbnail);
             }
-            // thumbnails[0] と同じ短縮プロパティも更新
-            rv.thumbnail = b64;
+            
+            // サムネイルが取得できなかった場合のフォールバック
+            if (!b64 && rv.videoId) {
+              const fallbackUrl = `https://i.ytimg.com/vi_webp/${rv.videoId}/default.webp`;
+              b64 = await fetchImageAsBase64(fallbackUrl);
+            }
+
+            // b64データが取得できていればオブジェクトを更新
+            if (b64) {
+              if (Array.isArray(rv.thumbnails) && rv.thumbnails.length > 0) {
+                rv.thumbnails[0].url = b64;
+              } else {
+                rv.thumbnails = [{ url: b64 }];
+              }
+              rv.thumbnail = b64;
+            }
           })
         );
       } catch (e) {
@@ -525,17 +553,24 @@ app.get("/api/video2/:id", async (req, res) => {
               nextContinuationToken = item.token;
               return null;
             }
+
+            // IDが11文字ではない、かつ"RD"から始まる場合はメインの動画IDを使用する
+            let rvId = item.videoId;
+            if (rvId && rvId.length !== 11 && rvId.startsWith("RD")) {
+              rvId = videoId;
+            }
+
             return {
               type: item.playlistId ? "playlist" : "video",
-              videoId: item.videoId,
+              videoId: rvId,
               title: item.title,
               channelName: item.channel?.name || "",
               viewCountText: item.stats?.views || "",
               publishedTimeText: item.stats?.publishedTime || "",
               duration: item.badge?.text || null,
-              badge: item.badge?.text || null,
+              badge: null,
               thumbnails: item.thumbnails?.static || [],
-              thumbnail: item.thumbnails?.static?.[0]?.url || "",
+              thumbnail: item.thumbnails?.static?.[0]?.url || null,
               channelAvatar: item.channel?.avatar || "",
               playlistId: item.playlistId,
               overlayIcon: item.badge?.icon,
@@ -547,14 +582,26 @@ app.get("/api/video2/:id", async (req, res) => {
         try {
           await Promise.all(
             relatedVideos.map(async (rv) => {
-              const thumbUrl = rv.thumbnail;
-              if (!thumbUrl) return;
-              const b64 = await fetchImageAsBase64(thumbUrl);
-              if (!b64) return;
-              if (Array.isArray(rv.thumbnails) && rv.thumbnails.length > 0) {
-                rv.thumbnails[0].url = b64;
+              let b64 = null;
+              if (rv.thumbnail) {
+                b64 = await fetchImageAsBase64(rv.thumbnail);
               }
-              rv.thumbnail = b64;
+
+              // サムネイルが取得できなかった場合のフォールバック
+              if (!b64 && rv.videoId) {
+                const fallbackUrl = `https://i.ytimg.com/vi_webp/${rv.videoId}/default.webp`;
+                b64 = await fetchImageAsBase64(fallbackUrl);
+              }
+
+              // b64データが取得できていればオブジェクトを更新
+              if (b64) {
+                if (Array.isArray(rv.thumbnails) && rv.thumbnails.length > 0) {
+                  rv.thumbnails[0].url = b64;
+                } else {
+                  rv.thumbnails = [{ url: b64 }];
+                }
+                rv.thumbnail = b64;
+              }
             })
           );
         } catch (e) {
@@ -665,8 +712,25 @@ app.get("/api/video2/:id", async (req, res) => {
         run3: nonEmptyLines[3] || "",
       };
 
-      // サムネイルURLの生成
+      // メインのサムネイルURLの生成と Base64 化
       const mainThumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+      const mainThumbnailB64 = (await fetchImageAsBase64(mainThumbnailUrl)) || mainThumbnailUrl;
+
+      // ==========================================
+      // レスポンス用にAuthorデータを調整 (追加部分)
+      // ==========================================
+      const isCollaborator = collaboratorsList.length > 0 || !!collabHeadline;
+
+      let displayAuthorName = channelName;
+      let displayAuthorThumbnail = authorThumb;
+      let displayAuthorSubscribers = subCount;
+
+      if (isCollaborator && collaboratorsList.length > 0) {
+        // コラボレーターがいる場合、リストの最初の人をAuthor情報として使用
+        displayAuthorName = collaboratorsList[0].name;
+        displayAuthorThumbnail = collaboratorsList[0].thumbnail;
+        displayAuthorSubscribers = "コラボレーター";
+      }
 
       // ---------------------------------------------------------
       // レスポンスJSONの構築
@@ -677,13 +741,13 @@ app.get("/api/video2/:id", async (req, res) => {
         views: viewCountStr,
         relativeDate: relativeDate,
         likes: likeButtonTitle,
-        thumbnail: mainThumbnailUrl,
+        thumbnail: mainThumbnailB64,
         author: {
           id: channelId,
-          name: channelName,
-          subscribers: subCount,
-          thumbnail: authorThumb,
-          collaborator: collaboratorsList.length > 0 || !!collabHeadline,
+          name: displayAuthorName,
+          subscribers: displayAuthorSubscribers,
+          thumbnail: displayAuthorThumbnail,
+          collaborator: isCollaborator,
           collaborators: collaboratorsList,
         },
         description: descriptionObj,
