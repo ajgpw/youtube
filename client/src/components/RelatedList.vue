@@ -1,33 +1,35 @@
 <template>
-  <aside v-if="relatedVideos.length" class="related-section">
+  <aside v-if="playlistId || relatedVideos.length" class="related-section">
     <PlaylistComponent
       v-if="playlistId"
       displayType="watch"
       :playlistId="playlistId"
       :playVideoId="currentVideoId"
     />
-    <h3 class="related-title">関連動画</h3>
-    <ul class="related-list">
-      <li v-for="(r, index) in relatedVideos" :key="r.videoId" :ref="(el) => { if (index === relatedVideos.length - 1) lastItem = el; }" class="related-item" :data-video-id="r.videoId">
-        <router-link v-if="r.videoId" :to="rLink(r)" class="page-link">
-          <div class="thumb-wrapper">
-            <img :src="r.base64imge" :alt="r.title" class="thumb-img" />
-            <span v-if="r.duration" class="duration-badge" :class="{ 'badge-live': r.badge && r.badge.toLowerCase().includes('ライブ') }">{{ r.duration }}</span>
-          </div>
-        </router-link>
-        <router-link v-if="r.videoId" :to="rLink(r)" class="page-link">
-          <div class="video-info">
-            <span class="video-title-related" :title="r.title">{{ r.title }}</span>
-            <div class="video-metadata">
-              <div style="display: flex; align-items: center;" class="one-line re-actername">{{ r.metadataRow1 }}<svg v-if="r.verifiedIcon === 'CHECK_CIRCLE_FILLED'" xmlns="http://www.w3.org/2000/svg" height="12" viewBox="0 0 12 12" width="12" focusable="false" aria-hidden="true" style="padding-left: 5px; pointer-events: none; display: inherit;"><path fill="#888" d="M6 0.5C2.962 0.5 0.5 2.962 0.5 6s2.462 5.5 5.5 5.5 5.5 -2.462 5.5 -5.5S9.037 0.5 6 0.5m2.853 3.647a0.5 0.5 0 0 1 0 0.707L5 8.707l-1.853 -1.853a0.5 0.5 0 1 1 0.707 -0.707L5 7.293l3.147 -3.147a0.5 0.5 0 0 1 0.707 0"/></svg></div>
-              <span v-if="r.metadataRow2Part1 && r.metadataRow2Part1.replace(/\s+/g, '') !== '本日更新'">{{ r.metadataRow2Part1.replace(/\s+/g, '') === '再生リストの全体を見る' ? '再生リスト' : r.metadataRow2Part1.replace(/\s+/g, '') }}</span>
-              <span v-if="r.metadataRow2Part2 && r.metadataRow2Part2.replace(/\s+/g, '')" class="dot">・</span>{{ r.metadataRow2Part2 ? r.metadataRow2Part2.replace(/\s+/g, '') : '' }}
+    <template v-if="relatedVideos.length">
+      <h3 class="related-title">関連動画</h3>
+      <ul class="related-list">
+        <li v-for="(r, index) in relatedVideos" :key="`${r.type}:${r.videoId}:${r.replaylistId || ''}`" :ref="(el) => { if (index === relatedVideos.length - 1) lastItem = el; }" class="related-item" :data-video-id="r.videoId">
+          <router-link v-if="r.videoId" :to="rLink(r)" class="page-link">
+            <div class="thumb-wrapper">
+              <img :src="r.base64imge" :alt="r.title" class="thumb-img" />
+              <span v-if="r.duration" class="duration-badge" :class="{ 'badge-live': r.badge && r.badge.toLowerCase().includes('ライブ') }">{{ r.duration }}</span>
             </div>
-            <span v-if="r.badge && r.badge !== null" class="badge-display">{{ r.badge }}</span>
-          </div>
-        </router-link>
-      </li>
-    </ul>
+          </router-link>
+          <router-link v-if="r.videoId" :to="rLink(r)" class="page-link">
+            <div class="video-info">
+              <span class="video-title-related" :title="r.title">{{ r.title }}</span>
+              <div class="video-metadata">
+                <div style="display: flex; align-items: center;" class="one-line re-actername">{{ r.metadataRow1 }}<svg v-if="r.verifiedIcon === 'CHECK_CIRCLE_FILLED'" xmlns="http://www.w3.org/2000/svg" height="12" viewBox="0 0 12 12" width="12" focusable="false" aria-hidden="true" style="padding-left: 5px; pointer-events: none; display: inherit;"><path fill="#888" d="M6 0.5C2.962 0.5 0.5 2.962 0.5 6s2.462 5.5 5.5 5.5 5.5 -2.462 5.5 -5.5S9.037 0.5 6 0.5m2.853 3.647a0.5 0.5 0 0 1 0 0.707L5 8.707l-1.853 -1.853a0.5 0.5 0 1 1 0.707 -0.707L5 7.293l3.147 -3.147a0.5 0.5 0 0 1 0.707 0"/></svg></div>
+                <span v-if="r.metadataRow2Part1 && r.metadataRow2Part1.replace(/\s+/g, '') !== '本日更新'">{{ r.metadataRow2Part1.replace(/\s+/g, '') === '再生リストの全体を見る' ? '再生リスト' : r.metadataRow2Part1.replace(/\s+/g, '') }}</span>
+                <span v-if="r.metadataRow2Part2 && r.metadataRow2Part2.replace(/\s+/g, '')" class="dot">・</span>{{ r.metadataRow2Part2 ? r.metadataRow2Part2.replace(/\s+/g, '') : '' }}
+              </div>
+              <span v-if="r.badge && r.badge !== null" class="badge-display">{{ r.badge }}</span>
+            </div>
+          </router-link>
+        </li>
+      </ul>
+    </template>
     <p v-if="loadingMore" class="loading-more">関連動画をさらに取得中...</p>
   </aside>
 </template>

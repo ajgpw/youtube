@@ -47,19 +47,19 @@ export function setupSyncPlayback(video, audio, sources, selectedQuality, diffTe
 
   function clearMediaSources(media) {
     if (!media) return;
-    const sources = media.querySelectorAll("source");
+    const sources = media.querySelectorAll(":scope > source");
     sources.forEach((source) => {
       source.removeAttribute("src");
       source.removeAttribute("type");
+      source.remove();
     });
-    while (media.firstChild) media.removeChild(media.firstChild);
     media.removeAttribute("src");
     media.load();
   }
 
   function setMediaSources(media, sourcesList) {
     if (!media) return;
-    while (media.firstChild) media.removeChild(media.firstChild);
+    media.querySelectorAll(":scope > source").forEach((source) => source.remove());
     if (Array.isArray(sourcesList) && sourcesList.length > 0) {
       for (const s of sourcesList) {
         if (!s || !s.url) continue;

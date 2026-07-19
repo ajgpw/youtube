@@ -8,7 +8,6 @@ const STORAGE_KEYS = {
   SHORT_VIDEO_FILTER_MINUTES: 'shortVideoFilterMinutes',
   DARK_MODE: 'darkMode',
   DISPLAY_MODE: 'displayMode',
-  CUSTOM_ENDPOINTS_JSONP_ONLY: 'customEndpointsJsonpOnly',
   DISABLE_TIMEOUTS: 'disableTimeouts',
   PREFERRED_QUALITY: 'preferredQuality',
 };
@@ -180,34 +179,6 @@ export function loadDisplayMode() {
 }
 
 /**
- * カスタムエンドポイントに対して JSONP のみを使用するかどうかを保存
- * @param {boolean} enabled
- */
-export function saveCustomEndpointsJsonpOnly(enabled) {
-  try {
-    safeSetItem(STORAGE_KEYS.CUSTOM_ENDPOINTS_JSONP_ONLY, !!enabled);
-  } catch (e) {
-    console.error('saveCustomEndpointsJsonpOnly error', e);
-  }
-}
-
-/**
- * カスタムエンドポイントに対して JSONP のみを使用するかどうかを読み込み
- * @returns {boolean}
- */
-export function loadCustomEndpointsJsonpOnly() {
-  try {
-    const v = safeGetItem(STORAGE_KEYS.CUSTOM_ENDPOINTS_JSONP_ONLY, null);
-    // デフォルトは false（fetchへフォールバックする）
-    if (v === null || v === undefined) return false;
-    return !!v;
-  } catch (e) {
-    console.error('loadCustomEndpointsJsonpOnly error', e);
-    return false;
-  }
-}
-
-/**
  * タイムアウトを無効化する設定を保存
  * @param {boolean} enabled
  */
@@ -284,20 +255,6 @@ export function computeIsDarkFromMode(mode) {
   }
 }
 
-/**
- * URLが有効か検証
- * @param {string} url
- * @returns {boolean}
- */
-export function isValidUrl(url) {
-  try {
-    const u = new URL(url);
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch (e) {
-    return false;
-  }
-}
-
 export default {
   saveDefaultPlayback,
   loadDefaultPlayback,
@@ -306,9 +263,6 @@ export default {
   saveDisplayMode,
   loadDisplayMode,
   computeIsDarkFromMode,
-  isValidUrl,
-  saveCustomEndpointsJsonpOnly,
-  loadCustomEndpointsJsonpOnly,
   saveDisableTimeouts,
   loadDisableTimeouts,
   savePreferredQuality,

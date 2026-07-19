@@ -10,23 +10,28 @@
       allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
       allowfullscreen
       referrerpolicy="strict-origin-when-cross-origin"
-      title="動画ストリーム"
+      :title="videoTitle || '動画ストリーム'"
+      @load="iframeLoaded = true"
     ></iframe>
+    <PlayerLoading v-if="!iframeLoaded" overlay />
   </div>
-  <div v-else-if="loading" style="height: 50px">読み込み中...</div>
+  <PlayerLoading v-else-if="loading" />
 </template>
 
 <script setup>
 import { ref, watch } from "vue";
+import PlayerLoading from "@/components/PlayerLoading.vue";
 import { apiRequest } from "@/services/requestManager";
 
 const props = defineProps({
-  videoId: { type: String, required: true }
+  videoId: { type: String, required: true },
+  videoTitle: { type: String, default: "" }
 });
 
 const streamUrl = ref("");
 const error = ref("");
 const loading = ref(false);
+const iframeLoaded = ref(false);
 
 // --- キャッシュ用 ---
 let cachedParams = null;
@@ -71,6 +76,7 @@ async function fetchStream(id) {
   streamUrl.value = "";
   error.value = "";
   loading.value = true;
+  iframeLoaded.value = false;
 
   let params = await fetchParamsFromSheet();
 

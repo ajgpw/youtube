@@ -1,8 +1,8 @@
 <template>
   <div class="video-wrapper">
-      <StreamType1 v-if="currentStreamType === '1'" :videoId="videoId" :reloadStream="reloadStream" @ended="onEnded" />
-      <StreamType2 v-else-if="currentStreamType === '2'" :videoId="videoId" :reloadStream="reloadStream" @ended="onEnded" @play-autoplay-candidate="onPlayAutoplayCandidate" @autoplay-no-suitable-video="onAutoplayNoSuitableVideo" />
-      <StreamType3 v-else-if="currentStreamType === '3'" :videoId="videoId" :reloadStream="reloadStream" @ended="onEnded" />
+      <StreamType1 v-if="currentStreamType === '1'" :videoId="videoId" :videoTitle="videoTitle" @ended="onEnded" @play-autoplay-candidate="onPlayAutoplayCandidate" @autoplay-no-suitable-video="onAutoplayNoSuitableVideo" />
+      <StreamType2 v-else-if="currentStreamType === '2'" :videoId="videoId" @ended="onEnded" @play-autoplay-candidate="onPlayAutoplayCandidate" @autoplay-no-suitable-video="onAutoplayNoSuitableVideo" />
+      <StreamType3 v-else-if="currentStreamType === '3'" :videoId="videoId" @ended="onEnded" />
   </div>
 </template>
 
@@ -15,6 +15,7 @@ import StreamType3 from "./StreamType3.vue";
 // props
 const props = defineProps({
   videoId: { type: String, required: true },
+  videoTitle: { type: String, default: "" },
   streamType: { type: String, default: "" }
 });
 
@@ -49,10 +50,6 @@ console.log("[StreamPlayer] setup", {
   propStreamType: props.streamType,
   initial: currentStreamType.value,
 });
-
-function reloadStream() {
-  // 各子コンポーネントで再取得用に渡すだけ
-}
 
 function onEnded(payload) {
   emit('ended', payload);

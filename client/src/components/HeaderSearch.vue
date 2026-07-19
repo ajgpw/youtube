@@ -150,34 +150,17 @@ import searchiconIcon from "/Image/search-icon.txt?raw";
 import searchIconBlack from "/Image/search-icon-black.txt?raw";
 
 import { ref, onMounted, onBeforeUnmount, watch } from "vue";
-import { useRouter } from "vue-router";
-import { apiurl } from "../api.js";
-import {
-  getEffectiveApiUrl,
-  loadCustomEndpoints as rmLoadCustomEndpoints,
-  saveCustomEndpoints as rmSaveCustomEndpoints,
-  loadMode as rmLoadMode,
-  saveMode as rmSaveMode,
-} from "@/services/requestManager";
 import {
   fetchSearchSuggestions,
   moveSelectionIndex,
 } from "@/utils/searchManager";
 import {
-  loadDefaultPlayback,
-  saveDefaultPlayback,
-  loadShortVideoFilter,
-  saveShortVideoFilter,
   loadDisplayMode,
-  saveDisplayMode,
   computeIsDarkFromMode,
-  isValidUrl,
 } from "@/utils/settingsManager";
 
-const router = useRouter();
 const emit = defineEmits([
   "search",
-  "searchMeta",
   "toggle-dark-mode",
   "toggle-sidebar",
 ]);
@@ -189,13 +172,6 @@ const selectedIndex = ref(-1);
 let fetchController = null;
 const searchFormRef = ref(null);
 
-// Settings state
-const customEndpoints = ref([]);
-const newEndpoint = ref("");
-const mode = ref("existing");
-const defaultPlaybackMode = ref("1");
-const shortVideoFilterEnabled = ref(false);
-const shortVideoFilterMinutes = ref(4);
 const displayMode = ref("device");
 const isDarkMode = ref(false);
 let mq = null;
@@ -228,33 +204,6 @@ const onClickOutside = (event) => {
 onMounted(() => {
   document.addEventListener("click", onClickOutside);
 
-  // ウィンドウリサイズリスナー
-  const handleResize = () => {
-    viewportWidth.value = window.innerWidth;
-  };
-  window.addEventListener("resize", handleResize);
-
-  // Load custom endpoints
-  try {
-    customEndpoints.value = rmLoadCustomEndpoints() || [];
-  } catch (e) {
-    customEndpoints.value = [];
-  }
-
-  // Load mode
-  try {
-    const m = rmLoadMode();
-    if (m) mode.value = m;
-  } catch (e) {}
-
-  // Load default playback mode
-  defaultPlaybackMode.value = loadDefaultPlayback();
-
-  // Load short video filter
-  const filter = loadShortVideoFilter();
-  shortVideoFilterEnabled.value = filter.enabled;
-  shortVideoFilterMinutes.value = filter.minutes;
-
   // Load display mode (device/light/dark)
   try {
     displayMode.value = loadDisplayMode();
@@ -279,7 +228,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener("click", onClickOutside);
-  window.removeEventListener("resize", () => {});
   // detach system color scheme listener if attached
   try {
     if (mq && mqHandler) {
@@ -337,26 +285,6 @@ const onSuggestionClick = (index) => {
 };
 
 /**
- * API URLを選択
- */
-const chooseApiUrl = () => {
-  try {
-    const u = getEffectiveApiUrl();
-    if (typeof u === "string" && u) return u;
-  } catch (e) {}
-
-  const customs = customEndpoints.value || [];
-  if (mode.value === "existing") return apiurl();
-  if (mode.value === "custom") {
-    return customs.length
-      ? customs[Math.floor(Math.random() * customs.length)]
-      : apiurl();
-  }
-  const pool = [...customs, apiurl()];
-  return pool[Math.floor(Math.random() * pool.length)];
-};
-
-/**
  * 検索を実行
  */
 const submitSearch = () => {
@@ -364,9 +292,7 @@ const submitSearch = () => {
   if (!trimmed) return;
   suggestions.value = [];
   selectedIndex.value = -1;
-  const chosen = chooseApiUrl();
   emit("search", trimmed);
-  emit("searchMeta", { query: trimmed, apiUrl: chosen, mode: mode.value });
 };
 
 /**
@@ -377,23 +303,6 @@ const clearQuery = () => {
   suggestions.value = [];
   selectedIndex.value = -1;
 };
-
-/**
- * Watchers
- */
-watch(mode, (v) => {
-  try {
-    rmSaveMode(v);
-  } catch (e) {}
-});
-
-watch(defaultPlaybackMode, (v) => saveDefaultPlayback(v));
-watch([shortVideoFilterEnabled, shortVideoFilterMinutes], () => {
-  saveShortVideoFilter(
-    shortVideoFilterEnabled.value,
-    shortVideoFilterMinutes.value
-  );
-});
 
 // ダークモード状態の監視
 watch(

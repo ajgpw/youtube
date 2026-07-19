@@ -17,42 +17,6 @@
 
       <!-- コンテンツ -->
       <div class="settings-modal-content">
-        <!-- API エンドポイント設定 -->
-        <section class="settings-section">
-          <h3>API エンドポイント設定</h3>
-
-          <!-- API モード選択 -->
-          <div class="mode-group">
-            <label><input type="radio" :checked="mode === 'existing'" @change="handleModeChange('existing')" /> 既存 API のみを使用</label>
-            <label><input type="radio" :checked="mode === 'custom'" @change="handleModeChange('custom')" /> カスタムのみを使用</label>
-            <label><input type="radio" :checked="mode === 'both'" @change="handleModeChange('both')" /> 両方をランダムに使用</label>
-          </div>
-        </section>
-
-        <!-- カスタムエンドポイント -->
-        <section class="settings-section">
-          <h3>カスタムエンドポイント</h3>
-          <ul class="custom-list">
-            <li v-for="(url, i) in customEndpoints" :key="i">
-              <span class="endpoint-text">{{ url }}</span>
-              <button type="button" class="remove-btn" @click="removeEndpoint(i)" aria-label="削除">削除</button>
-            </li>
-            <li v-if="customEndpoints.length === 0">
-              <CustomEndpointsHelp />
-            </li>
-          </ul>
-
-          <div class="add-row">
-            <input
-              type="text"
-              :value="newEndpoint"
-              @input="handleNewEndpointChange($event.target.value)"
-              placeholder="https://siawaseok.duckdns.org/exec"
-            />
-            <button type="button" @click="addEndpoint">追加</button>
-          </div>
-        </section>
-
         <!-- デフォルト再生方式 -->
         <section class="settings-section">
           <h3>デフォルト再生方式</h3>
@@ -158,14 +122,6 @@
           <label>
             <input
               type="checkbox"
-              :checked="jsonpOnlyForCustom"
-              @change="handleJsonpOnlyChange($event.target.checked)"
-            />
-            カスタムエンドポイントはJSONPのみを使用（fetchへフォールバックしない）
-          </label>
-          <label>
-            <input
-              type="checkbox"
               :checked="disableTimeouts"
               @change="handleDisableTimeoutsChange($event.target.checked)"
             />
@@ -186,13 +142,6 @@
 
 <script setup>
 import { ref, onMounted, inject, watch, computed } from "vue";
-import CustomEndpointsHelp from "@/components/CustomEndpointsHelp.vue";
-import {
-  loadCustomEndpoints as rmLoadCustomEndpoints,
-  saveCustomEndpoints as rmSaveCustomEndpoints,
-  loadMode as rmLoadMode,
-  saveMode as rmSaveMode,
-} from "@/services/requestManager";
 import {
   loadDefaultPlayback,
   saveDefaultPlayback,
@@ -201,9 +150,6 @@ import {
   loadDisplayMode,
   saveDisplayMode,
   computeIsDarkFromMode,
-  loadCustomEndpointsJsonpOnly,
-  saveCustomEndpointsJsonpOnly,
-  isValidUrl,
   loadDisableTimeouts,
   saveDisableTimeouts,
   loadPreferredQuality,
@@ -214,14 +160,10 @@ import {
 const settingsModal = inject("settingsModal", {});
 
 // Settings state
-const customEndpoints = ref([]);
-const newEndpoint = ref("");
-const mode = ref("existing");
 const defaultPlaybackMode = ref("1");
 const shortVideoFilterEnabled = ref(false);
 const shortVideoFilterMinutes = ref(4);
 const displayMode = ref("device");
-const jsonpOnlyForCustom = ref(false);
 const disableTimeouts = ref(true);
 const preferredQuality = ref("auto");
 const preferredQualityOptions = [
@@ -258,13 +200,11 @@ onMounted(() => {
   // 設定をlocalStorageに保存するwatcher
   watch(
     [
-      customEndpoints,
-      mode,
       defaultPlaybackMode,
       shortVideoFilterEnabled,
       shortVideoFilterMinutes,
       displayMode,
-      jsonpOnlyForCustom,
+      disableTimeouts,
       preferredQuality,
     ],
     () => {
@@ -309,8 +249,6 @@ const loadSettings = () => {
   try {
     const savedSettings = loadFromLocalStorage();
     if (savedSettings) {
-      customEndpoints.value = savedSettings.customEndpoints || [];
-      mode.value = savedSettings.mode || "existing";
       defaultPlaybackMode.value = savedSettings.defaultPlaybackMode || "1";
       shortVideoFilterEnabled.value =
         savedSettings.shortVideoFilterEnabled || false;
@@ -320,19 +258,6 @@ const loadSettings = () => {
       preferredQuality.value = savedSettings.preferredQuality || "auto";
       return;
     }
-  } catch (e) {}
-
-  // Load custom endpoints
-  try {
-    customEndpoints.value = rmLoadCustomEndpoints() || [];
-  } catch (e) {
-    customEndpoints.value = [];
-  }
-
-  // Load mode
-  try {
-    const m = rmLoadMode();
-    if (m) mode.value = m;
   } catch (e) {}
 
   // Load default playback mode
@@ -356,12 +281,6 @@ const loadSettings = () => {
     preferredQuality.value = "auto";
   }
 
-  // JSONPのみ設定の読み込み（カスタムエンドポイント用）
-  try {
-    jsonpOnlyForCustom.value = loadCustomEndpointsJsonpOnly();
-  } catch (e) {
-    jsonpOnlyForCustom.value = false;
-  }
   // タイムアウト無効化設定を読み込み
   try {
     disableTimeouts.value = loadDisableTimeouts();
@@ -372,14 +291,10 @@ const loadSettings = () => {
 
 const saveBackup = () => {
   backupState.value = {
-    customEndpoints: JSON.parse(JSON.stringify(customEndpoints.value)),
-    newEndpoint: newEndpoint.value,
-    mode: mode.value,
     defaultPlaybackMode: defaultPlaybackMode.value,
     shortVideoFilterEnabled: shortVideoFilterEnabled.value,
     shortVideoFilterMinutes: shortVideoFilterMinutes.value,
     displayMode: displayMode.value,
-    jsonpOnlyForCustom: jsonpOnlyForCustom.value,
     preferredQuality: preferredQuality.value,
   };
 };
@@ -392,13 +307,6 @@ const closeSettings = () => {
 };
 
 // Event handlers
-const handleModeChange = (newMode) => {
-  mode.value = newMode;
-  try {
-    rmSaveMode(newMode);
-  } catch (e) {}
-};
-
 const handlePlaybackModeChange = (newMode) => {
   defaultPlaybackMode.value = newMode;
   saveDefaultPlayback(newMode);
@@ -440,13 +348,6 @@ const handleDisplayModeChange = (newMode) => {
   applyDisplayMode(newMode);
 };
 
-const handleJsonpOnlyChange = (enabled) => {
-  jsonpOnlyForCustom.value = !!enabled;
-  try {
-    saveCustomEndpointsJsonpOnly(!!enabled);
-  } catch (e) {}
-};
-
 const handleDisableTimeoutsChange = (enabled) => {
   disableTimeouts.value = !!enabled;
   try {
@@ -454,48 +355,13 @@ const handleDisableTimeoutsChange = (enabled) => {
   } catch (e) {}
 };
 
-const handleNewEndpointChange = (value) => {
-  newEndpoint.value = value;
-};
-
-const addEndpoint = () => {
-  const v = newEndpoint.value.trim();
-  if (!v) return;
-  if (!isValidUrl(v)) {
-    alert("有効なURLを入力してください。");
-    return;
-  }
-  if (customEndpoints.value.includes(v)) {
-    alert("既に追加されています。");
-    newEndpoint.value = "";
-    return;
-  }
-  customEndpoints.value.push(v);
-  newEndpoint.value = "";
-  rmSaveCustomEndpoints(customEndpoints.value);
-
-  // Automatically switch API mode to "custom" when a custom endpoint is added
-  try {
-    mode.value = "custom";
-    rmSaveMode("custom");
-  } catch (e) {}
-};
-
-const removeEndpoint = (index) => {
-  customEndpoints.value.splice(index, 1);
-  rmSaveCustomEndpoints(customEndpoints.value);
-};
-
 // localStorage関連の関数
 const saveToLocalStorage = () => {
   try {
     const settingsData = {
-      customEndpoints: customEndpoints.value,
-      mode: mode.value,
       defaultPlaybackMode: defaultPlaybackMode.value,
       shortVideoFilterEnabled: shortVideoFilterEnabled.value,
       shortVideoFilterMinutes: shortVideoFilterMinutes.value,
-      jsonpOnlyForCustom: jsonpOnlyForCustom.value,
       disableTimeouts: disableTimeouts.value,
       displayMode: displayMode.value,
       preferredQuality: preferredQuality.value,
@@ -510,8 +376,6 @@ const loadFromLocalStorage = () => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const data = JSON.parse(stored);
-      if (typeof data.jsonpOnlyForCustom !== "undefined")
-        jsonpOnlyForCustom.value = !!data.jsonpOnlyForCustom;
       if (typeof data.disableTimeouts !== "undefined")
         disableTimeouts.value = !!data.disableTimeouts;
       return data;

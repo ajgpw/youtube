@@ -9,6 +9,31 @@
                     .setTitle('しあtube')
                     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
+
+function siatubeApiGet(pathAndQuery) {
+  const value = String(pathAndQuery || '');
+  const valid = value === '/api' || value.startsWith('/api/') || value.startsWith('/api?');
+  if (!valid) throw new Error('Invalid API path');
+
+  const directUrl = 'https://siatube.com' + value;
+  const commonOptions = {
+    headers: { Accept: 'application/json' },
+    followRedirects: true,
+    muteHttpExceptions: true
+  };
+  const response = directUrl.length &lt;= 1900
+    ? UrlFetchApp.fetch(directUrl, commonOptions)
+    : UrlFetchApp.fetch('https://siawaseok.duckdns.org/api/bridge', {
+        ...commonOptions,
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ pathAndQuery: value })
+      });
+  return {
+    status: response.getResponseCode(),
+    body: response.getContentText()
+  };
+}
 </code></pre>
 
 <h2>手順</h2>
@@ -29,6 +54,8 @@
   <li><strong>「デプロイ」</strong> をクリック</li>
   <li>認証画面が出た場合は、指示に従って認証を完了</li>
   <li>デプロイ完了後に表示されるURLにアクセスすると、GitHub 上の <code>index.html.txt</code> のHTMLが実行されます</li>
+  <li>既存デプロイの更新時も、<code>siatubeApiGet</code> を含む上記コード全体へ置き換えて再デプロイしてください</li>
+  <li>長い continuation token 用の中継を有効にするため、GAS 版より先に、このリポジトリの最新 <code>server/index.js</code> を <code>siawaseok.duckdns.org</code> へデプロイしてください</li>
 </ol>
 
 <h2>注意点</h2>
@@ -49,10 +76,10 @@
   </li>
   <li>
     <img src="https://www.line.me/static/img/apple-touch-icon-57x57.png" alt="LINE" width="16" height="16" style="vertical-align: middle; margin-right: 4px;">
-    <a href="https://line.me/ti/g2/vCj1dWEoRZTALbC0n1w53si3-KJ8OTXnfjV6aw?utm_source=invitation&utm_medium=link_copy&utm_campaign=default" target="_blank">LINEオープンチャット</a>
+    <a href="https://line.me/ti/g2/PT62G9W_N5WOkD7VECW3tftJlCn2KTJIVt6k7g" target="_blank">LINEオープンチャット</a>
   </li>
   <li>
     <img src="https://assets.chatwork.com/images/favicon/favicon00.ico" alt="Chatwork" width="16" height="16" style="vertical-align: middle; margin-right: 4px;">
-    <a href="https://www.chatwork.com/g/siawaseok-_-" target="_blank">Chatwork</a>
+    <a href="https://www.chatwork.com/g/siatube" target="_blank">Chatwork</a>
   </li>
 </ul>

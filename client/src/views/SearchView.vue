@@ -2,7 +2,7 @@
   <div>
     <!-- 通常読み込み中 -->
     <div v-if="loading || retrying" class="loading">
-      {{ retrying ? "再読み込み中…" : "読み込み中…" }}<br>カスタムエンドポイントを設定していない場合、設定からカスタムエンドポイントのを追加してください　＊1~3分で作れます
+      {{ retrying ? "再読み込み中…" : "読み込み中…" }}
     </div>
 
     <!-- エラー表示 -->
@@ -10,7 +10,7 @@
       {{ error }}
       <button @click="retry" class="retry-btn" :disabled="retrying">
         {{ retrying ? "再読み込み中…" : "再試行" }}
-      </button><br>カスタムエンドポイントを設定していない場合、設定からカスタムエンドポイントのを追加してください　＊1~3分で作れます
+      </button>
     </div>
 
     <!-- 成功時の動画リスト -->
@@ -24,12 +24,28 @@
     <div v-if="!loading && !error && videos.length === 0" class="no-results">
       検索結果が見つかりませんでした。
     </div>
+
+    <div v-if="!loading && !error && videos.length" class="load-more-row">
+      <div>
+        <button
+          v-if="continuationToken"
+          type="button"
+          class="retry-btn"
+          :disabled="loadingMore"
+          @click="loadMore"
+        >
+          {{ loadingMore ? "さらに読み込み中…" : "検索結果をさらに表示" }}
+        </button>
+        <p v-if="loadMoreError" class="error">{{ loadMoreError }}</p>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
 import VideoList from "@/components/VideoList.vue";
-import { apiRequest } from "@/services/requestManager";
+import { search as searchSiaTube } from "@/services/siatubeApi";
+import { normalizeSearchItems } from "@/utils/siatubeAdapters";
 
 export default {
   components: { VideoList },
@@ -46,6 +62,10 @@ export default {
       error: null,
       lastQuery: "",
       retrying: false,
+      loadingMore: false,
+      continuationToken: null,
+      loadMoreError: null,
+      searchSequence: 0,
     };
   },
   watch: {
@@ -57,46 +77,74 @@ export default {
           this.lastQuery = newQuery;
           this.fetchSearchResults(newQuery);
         } else {
+          this.searchSequence += 1;
           this.videos = [];
+          this.continuationToken = null;
+          this.loading = false;
+          this.loadingMore = false;
+          this.retrying = false;
+          this.error = null;
+          this.loadMoreError = null;
         }
       },
     },
   },
   methods: {
-    async fetchSearchResults(q) {
+    async fetchSearchResults(q, { append = false, token = null } = {}) {
+      const sequence = append ? this.searchSequence : ++this.searchSequence;
       // 通常の検索呼び出しか再試行かでフラグ設定
-      if (!this.retrying) this.loading = true;
-      this.error = null;
-      this.videos = []; // 検索開始時にクリア
+      if (append) this.loadingMore = true;
+      else if (!this.retrying) this.loading = true;
+      if (append) this.loadMoreError = null;
+      else this.error = null;
+      if (!append) {
+        this.loadMoreError = null;
+        this.videos = [];
+        this.continuationToken = null;
+      }
 
       try {
-        const data = await apiRequest({
-          params: { q },
-          retries: 2,
-          timeout: 15000,
-          jsonpFallback: false,
-        });
+        const data = await searchSiaTube({ query: token ? "" : q, token });
+        if (sequence !== this.searchSequence) return;
 
-        // レスポンスがエラーオブジェクトの場合
-        if (data && typeof data === "object" && data.error) {
-          this.error = "メインサーバーから無効な応答が帰ってきました";
-          this.videos = [];
-          return;
+        const incoming = normalizeSearchItems(data?.items);
+        if (append) {
+          const seen = new Set(
+            this.videos.map((item) => `${item.type}:${item.id}:${item.playlistId || ""}`)
+          );
+          this.videos.push(
+            ...incoming.filter((item) => {
+              const key = `${item.type}:${item.id}:${item.playlistId || ""}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            })
+          );
+        } else {
+          this.videos = incoming;
         }
-
-        this.videos = Array.isArray(data.results)
-          ? data.results
-          : Array.isArray(data)
-          ? data
-          : [];
+        this.continuationToken = data?.continuationToken || null;
       } catch (e) {
         console.warn("fetchSearchResults error:", e);
-        this.error = "検索APIの取得に失敗しました";
-        this.videos = [];
+        if (sequence === this.searchSequence) {
+          if (append) this.loadMoreError = "検索結果の追加取得に失敗しました";
+          else this.error = "検索APIの取得に失敗しました";
+          if (!append) this.videos = [];
+        }
       } finally {
-        this.loading = false;
-        this.retrying = false;
+        if (sequence === this.searchSequence) {
+          this.loading = false;
+          this.loadingMore = false;
+          this.retrying = false;
+        }
       }
+    },
+    loadMore() {
+      if (!this.continuationToken || this.loadingMore) return;
+      this.fetchSearchResults(this.lastQuery, {
+        append: true,
+        token: this.continuationToken,
+      });
     },
     retry() {
       if (!this.lastQuery) return;
@@ -148,5 +196,11 @@ export default {
   padding: 1rem;
   text-align: center;
   color: var(--text-secondary);
+}
+
+.load-more-row {
+  display: flex;
+  justify-content: center;
+  padding: 0 1rem 1.5rem;
 }
 </style>

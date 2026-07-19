@@ -223,6 +223,9 @@ export default {
   background-color: var(--bg-primary);
   border-right: 1px solid var(--border-color);
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  touch-action: pan-y;
   z-index: 10;
   transition: width 0.3s ease, height 0.3s ease;
 }
@@ -249,12 +252,19 @@ export default {
 }
 
 .sidebar-nav {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
   padding: 12px 0;
 }
 
 .sidebar-item {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   padding: 12px 24px;
@@ -309,8 +319,11 @@ export default {
 }
 
 .sidebar-label {
+  min-width: 0;
+  overflow: hidden;
   font-size: 14px;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .sidebar.compact-mode .sidebar-label {

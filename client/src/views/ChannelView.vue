@@ -1,963 +1,1949 @@
 <template>
-  <section class="channel-view" v-if="channel && channel.title">
-    <!-- バナー -->
-    <div
-      class="banner"
-      :style="{
-        backgroundImage: loadingChannel
-          ? ''
-          : `url(${channel.banner || defaultBanner})`,
-      }"
-    >
-      <div v-if="loadingChannel" class="skeleton"></div>
-    </div>
-
-    <!-- チャンネル概要 -->
-    <div class="channel-header">
-      <div class="avatar-wrapper">
-        <img
-          v-if="!loadingChannel"
-          :src="channel.avatar || defaultAvatar"
-          alt="チャンネルアイコン"
-          class="avatar"
-        />
-        <div v-else class="skeleton avatar"></div>
-      </div>
-      <div class="info">
-        <div
-          v-if="!loadingChannel"
-          style="display: flex; align-items: center; gap: 12px"
-        >
-          <h1 style="font-size: 2.1em; margin-block-end: 0.4em; margin: 0">
-            {{ channel.title }}
-          </h1>
-          <button
-            class="subscribe-btn"
-            :class="{ subscribed }"
-            @click="toggleSubscribeOnChannel"
-            :title="subscribed ? '登録解除' : '登録'"
-          >
-            {{ subscribed ? "登録解除" : "登録" }}
-          </button>
+  <main class="channel-page">
+    <section v-if="loadingChannel" class="channel-shell loading-shell" aria-busy="true">
+      <div class="skeleton banner-skeleton"></div>
+      <div class="loading-identity">
+        <div class="skeleton avatar-skeleton"></div>
+        <div class="loading-copy">
+          <div class="skeleton line line-title"></div>
+          <div class="skeleton line line-meta"></div>
+          <div class="skeleton line line-description"></div>
         </div>
-        <div
-          v-else
-          class="skeleton skeleton-text"
-          style="width: 60%; height: 2.1em; margin-bottom: 0.4em"
-        ></div>
-        <p v-if="!loadingChannel" class="video-count">
-          {{ channel.videoCount }}
-        </p>
-        <div
-          v-else
-          class="skeleton skeleton-text"
-          style="width: 30%; height: 1.2em; margin-bottom: 0.4em"
-        ></div>
-        <p v-if="!loadingChannel" class="description">
-          {{ channel.description }}
-        </p>
-        <div
-          v-else
-          class="skeleton skeleton-text"
-          style="width: 90%; height: 2em"
-        ></div>
       </div>
-    </div>
+      <div class="skeleton tabs-skeleton"></div>
+      <div class="loading-grid">
+        <div v-for="index in 8" :key="index" class="loading-card">
+          <div class="skeleton loading-thumbnail"></div>
+          <div class="skeleton line"></div>
+          <div class="skeleton line line-short"></div>
+        </div>
+      </div>
+    </section>
 
-    <!-- タブ -->
-    <div class="tabs">
-      <div
-        :class="{ active: tab === 'home' }"
-        role="button"
-        tabindex="0"
-        @click="tab = 'home'"
-        @keydown.enter.space.prevent="tab = 'home'"
-        style="margin-right: 24px"
-      >
-        <span v-if="!loadingChannel">ホーム</span>
-        <span
-          v-else
-          class="skeleton skeleton-text"
-          style="width: 60px; height: 1.3em"
-        ></span>
-      </div>
-      <div
-        :class="{ active: tab === 'videos' }"
-        role="button"
-        tabindex="0"
-        @click="tab = 'videos'"
-        @keydown.enter.space.prevent="tab = 'videos'"
-      >
-        <span v-if="!loadingChannel">動画</span>
-        <span
-          v-else
-          class="skeleton skeleton-text"
-          style="width: 60px; height: 1.3em"
-        ></span>
-      </div>
-    </div>
+    <section v-else-if="errorMessage || !channel" class="error-state">
+      <div class="error-mark" aria-hidden="true">!</div>
+      <h1>チャンネルを読み込めませんでした</h1>
+      <p>{{ errorMessage || "チャンネル情報を取得できませんでした。" }}</p>
+      <button type="button" class="primary-button" @click="reloadChannel">もう一度試す</button>
+    </section>
 
-    <!-- ホームタブ -->
-    <div v-if="tab === 'home'" class="tab-content">
-      <!-- トップ動画 -->
-      <section class="top-video" v-if="channel.topVideo?.videoId">
-        <router-link
-          :to="`/watch?v=${channel.topVideo.videoId}`"
-          class="top-video-link"
-        >
-          <div class="thumbnail-wrapper">
+    <template v-else>
+      <header class="channel-hero">
+        <div class="banner" :class="{ 'has-image': channel.banner && !bannerFailed }">
+          <img
+            v-if="channel.banner && !bannerFailed"
+            :src="channel.banner"
+            alt=""
+            class="banner-image"
+            @error="bannerFailed = true"
+          />
+          <div class="banner-pattern" aria-hidden="true"></div>
+        </div>
+
+        <div class="hero-content channel-shell">
+          <div class="channel-avatar-wrap">
             <img
-              v-if="!loadingChannel"
-              :src="getPrimaryThumbnail(channel.topVideo.videoId)"
-              alt="トップ動画サムネイル"
-              class="thumbnail"
-              @error="onImageError($event, channel.topVideo.videoId)"
+              v-if="channel.avatar && !avatarFailed"
+              :src="channel.avatar"
+              :alt="`${channel.title}のチャンネルアイコン`"
+              class="channel-avatar"
+              @error="avatarFailed = true"
             />
-            <div
-              v-else
-              class="skeleton"
-              style="width: 100%; height: 100%"
-            ></div>
-            <span
-              class="duration"
-              v-if="channel.topVideo.duration && !loadingChannel"
-            >
-              {{ channel.topVideo.duration }}
-            </span>
-            <div
-              v-else-if="loadingChannel"
-              class="skeleton skeleton-text"
-              style="
-                width: 40px;
-                height: 1em;
-                position: absolute;
-                bottom: 6px;
-                right: 6px;
-              "
-            ></div>
+            <div v-else class="channel-avatar avatar-fallback" aria-hidden="true">
+              {{ channelInitial }}
+            </div>
           </div>
-          <div class="top-video-info">
-            <h3
-              v-if="!loadingChannel"
-              style="
-                margin-block-start: 0em;
-                font-size: 1.45em;
-                margin-block-end: 0.5em;
-              "
-            >
-              {{ channel.topVideo.title }}
-            </h3>
-            <div
-              v-else
-              class="skeleton skeleton-text"
-              style="width: 70%; height: 1.45em; margin-bottom: 0.5em"
-            ></div>
-            <p v-if="!loadingChannel">
-              <strong>再生回数:</strong> {{ channel.topVideo.viewCount }}
-            </p>
-            <div
-              v-else
-              class="skeleton skeleton-text"
-              style="width: 40%; height: 1em"
-            ></div>
-            <p v-if="!loadingChannel">
-              <strong>投稿日:</strong> {{ channel.topVideo.published }}
-            </p>
-            <div
-              v-else
-              class="skeleton skeleton-text"
-              style="width: 40%; height: 1em"
-            ></div>
-            <p
-              v-if="!loadingChannel"
-              class="description-text"
-              v-html="channel.topVideo.description"
-            ></p>
-            <div
-              v-else
-              class="skeleton skeleton-text"
-              style="width: 90%; height: 2em"
-            ></div>
-          </div>
-        </router-link>
-      </section>
 
-      <section class="playlists">
-        <div
-          v-for="(playlist, index) in channel.playlists"
-          :key="playlist.playlistId || index"
-          class="playlist-wrapper"
-        >
-          <h2 class="playlist-title">
-            <span v-if="!loadingChannel">{{ playlist.title }}</span>
-            <span
-              v-else
-              class="skeleton skeleton-text"
-              style="width: 40%; height: 1.2em"
-            ></span>
-            <router-link
-              v-if="playlist.playlistId && !loadingChannel"
-              :to="`/playlist?list=${playlist.playlistId}`"
-              class="playlist-video-link-to"
-              >▶ 全てを再生<span
-                style="font-size: small; color: var(--text-secondary)"
-                >(プレイリスト再生モード)</span
-              ></router-link
-            >
-            <span
-              v-else-if="loadingChannel"
-              class="skeleton skeleton-text"
-              style="width: 80px; height: 1em; margin-left: 10px"
-            ></span>
-          </h2>
-          <div class="playlist-items-scroll">
-            <div
-              v-for="(item, idx) in playlist.items"
-              :key="item.videoId || idx"
-              class="playlist-item"
-            >
-              <router-link
-                :to="
-                  item.icon
-                    ? `/channel/${item.videoId}`
-                    : `/watch?v=${item.videoId}`
-                "
-                class="video-link"
+          <div class="identity">
+            <div class="title-line">
+              <div>
+                <h1>{{ channel.title }}</h1>
+              </div>
+              <div class="hero-actions">
+                <button
+                  type="button"
+                  class="subscribe-button"
+                  :class="{ subscribed }"
+                  :aria-pressed="subscribed"
+                  @click="toggleSubscribeOnChannel"
+                >
+                  <span aria-hidden="true">{{ subscribed ? "✓" : "+" }}</span>
+                  {{ subscribed ? "登録済み" : "チャンネル登録" }}
+                </button>
+                <a
+                  :href="youtubeChannelUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="secondary-button"
+                >YouTube ↗</a>
+              </div>
+            </div>
+
+            <div class="channel-meta">
+              <span v-if="channel.videoCount" class="important-meta">{{ channel.videoCount }}</span>
+              <span v-if="channel.channelId">ID:{{ channel.channelId }}</span>
+            </div>
+
+            <div v-if="descriptionText" class="hero-description-wrap">
+              <p class="hero-description" :class="{ expanded: descriptionExpanded }">
+                {{ descriptionText }}
+              </p>
+              <button
+                v-if="descriptionIsLong"
+                type="button"
+                class="text-button"
+                @click="descriptionExpanded = !descriptionExpanded"
               >
-                <div class="thumbnail-wrapper small-thumb">
-                  <div>
-                    <!-- icon がある場合 -->
-                    <template v-if="item.icon && !loadingChannel">
-                      <div class="center">
-                        <a :to="`/channel/${item.videoId}`">
-                          <img
-                            :src="item.icon"
-                            alt="チャンネルアイコン"
-                            class="round"
-                          />
-                        </a>
-                      </div>
-                    </template>
-                    <template v-else-if="item.icon && loadingChannel">
-                      <div class="skeleton round"></div>
-                    </template>
-                    <!-- icon がない場合 -->
-                    <template v-else-if="!item.icon && !loadingChannel">
-                      <img
-                        :src="
-                          item.thumbnail || getPrimaryThumbnail(item.videoId)
-                        "
-                        alt="動画サムネイル"
-                        class="thumbnail"
-                        @error="onImageError($event, item.videoId)"
-                      />
-                    </template>
-                    <template v-else>
-                      <div class="skeleton thumbnail"></div>
-                    </template>
-                  </div>
-                  <span
-                    class="duration"
-                    v-if="item.duration && !loadingChannel"
-                    >{{ item.duration }}</span
-                  >
-                  <div
-                    v-else-if="loadingChannel"
-                    class="skeleton skeleton-text"
-                    style="
-                      width: 40px;
-                      height: 1em;
-                      position: absolute;
-                      bottom: 6px;
-                      right: 6px;
-                    "
-                  ></div>
-                </div>
-                <p v-if="item.icon && !loadingChannel" class="center-text">
-                  {{ item.title }}
-                </p>
-                <div
-                  v-else-if="item.icon && loadingChannel"
-                  class="skeleton skeleton-text center-text"
-                  style="width: 60%; height: 1em"
-                ></div>
-                <p
-                  :class="title"
-                  v-if="!item.icon && !loadingChannel"
-                  class="left-text"
-                  style="font-weight: 600"
-                >
-                  {{ item.title }}
-                </p>
-                <div
-                  v-else-if="!item.icon && loadingChannel"
-                  class="skeleton skeleton-text left-text"
-                  style="width: 80%; height: 1em"
-                ></div>
-                <p class="author" v-if="!item.icon && !loadingChannel">
-                  {{ item.author }}
-                </p>
-                <div
-                  v-else-if="!item.icon && loadingChannel"
-                  class="skeleton skeleton-text left-text"
-                  style="width: 40%; height: 1em"
-                ></div>
-                <p
-                  class="meta"
-                  :class="item.icon ? 'center-text' : 'left-text'"
-                  v-if="!loadingChannel"
-                >
-                  {{ item.viewCount
-                  }}<template v-if="item.published"
-                    >・{{ item.published }}</template
-                  >
-                </p>
-                <div
-                  v-else
-                  class="skeleton skeleton-text"
-                  style="width: 60%; height: 1em"
-                ></div>
-              </router-link>
+                {{ descriptionExpanded ? "閉じる" : "もっと見る" }}
+              </button>
             </div>
           </div>
         </div>
-      </section>
-    </div>
-    <!-- 動画タブ -->
-    <div v-else-if="tab === 'videos'" class="tab-content">
-      <VideoList
-        :playlist-id="channel.uploadsPlaylistId"
-        displayType="channel"
-      />
-    </div>
-  </section>
-  <section v-else-if="loadingChannel" class="loading">読み込み中...</section>
-  <section v-else class="error-section">
-    <div
-      class="skeleton"
-      style="width: 100%; height: 180px; margin-bottom: 24px"
-    ></div>
-    <div
-      class="skeleton skeleton-text"
-      style="width: 60%; height: 2.1em; margin: 0 auto 16px auto"
-    ></div>
-    <div
-      class="skeleton skeleton-text"
-      style="width: 30%; height: 1.2em; margin: 0 auto 16px auto"
-    ></div>
-    <div
-      class="skeleton skeleton-text"
-      style="width: 90%; height: 2em; margin: 0 auto 16px auto"
-    ></div>
-    <p style="color: var(--accent-weak); margin: 24px 0">
-      チャンネル情報の取得に失敗しました。
-    </p>
-    <button class="reload-btn" @click="reloadChannel">再取得</button>
-  </section>
-  <div v-if="tab === 'home'" class="page-end">
-    <div>
-      <br />
-      <p v-if="!loadingChannel" style="color: var(--text-primary)">
-        すべての動画を見るには「動画」セクションに移動してください
-      </p>
-      <div
-        v-else
-        class="skeleton skeleton-text"
-        style="width: 60%; height: 1em; margin: 0 auto"
-      ></div>
-    </div>
-    <div class="tabs">
-      <div
-        :class="{ active: tab === 'videos' }"
-        class="page-end-tab"
-        role="button"
-        tabindex="0"
-        @click="tab = 'videos'"
-        @keydown.enter.space.prevent="tab = 'videos'"
-      >
-        <span v-if="!loadingChannel"
-          >動画セクションに移動<img :src="settingIcon" width="21" height="21"
-        /></span>
-        <span
-          v-else
-          class="skeleton skeleton-text"
-          style="width: 120px; height: 1.3em"
-        ></span>
+      </header>
+
+      <nav class="channel-nav" aria-label="チャンネル内メニュー">
+        <div class="channel-shell tab-strip" role="tablist">
+          <button
+            v-for="item in tabs"
+            :key="item.id"
+            type="button"
+            role="tab"
+            :aria-selected="tab === item.id"
+            :class="{ active: tab === item.id }"
+            @click="tab = item.id"
+          >
+            {{ item.label }}
+            <span v-if="item.count !== null" class="tab-count">{{ item.count }}</span>
+          </button>
+        </div>
+      </nav>
+
+      <div class="channel-shell page-content">
+        <template v-if="tab === 'home'">
+          <section v-if="topVideo?.videoId" class="featured-section">
+            <div class="section-kicker">FEATURED</div>
+            <router-link :to="`/watch?v=${topVideo.videoId}`" class="featured-card">
+              <div class="featured-media">
+                <img
+                  v-if="featureImage && !featureImageFailed"
+                  :src="featureImage"
+                  :alt="topVideo.title"
+                  @error="handleFeatureImageError"
+                />
+                <div v-else class="feature-placeholder" aria-hidden="true">▶</div>
+                <div class="feature-overlay"></div>
+                <span class="feature-play" aria-hidden="true">▶</span>
+                <span v-if="topVideo.duration" class="feature-duration">
+                  {{ topVideo.duration }}
+                </span>
+              </div>
+              <div class="featured-copy">
+                <div v-if="topVideoStatus" class="feature-status">{{ topVideoStatus }}</div>
+                <h2>{{ topVideo.title || "注目の動画" }}</h2>
+                <div v-if="topVideoMeta.length" class="feature-meta">
+                  <span v-for="meta in topVideoMeta" :key="meta">{{ meta }}</span>
+                </div>
+                <p v-if="topVideo.description">{{ plainText(topVideo.description) }}</p>
+                <div v-if="topVideo.badges?.length" class="feature-badges">
+                  <span v-for="badge in topVideo.badges" :key="badge">{{ badge }}</span>
+                </div>
+                <strong class="watch-action">今すぐ見る <span>→</span></strong>
+              </div>
+            </router-link>
+          </section>
+          <section
+            v-for="(section, sectionIndex) in displayedHomeSections"
+            :key="sectionKey(section, sectionIndex)"
+            class="channel-section"
+          >
+            <div class="section-heading">
+              <div class="heading-main">
+                <router-link
+                  v-if="section.playlistId"
+                  :to="`/playlist?list=${encodeURIComponent(section.playlistId)}`"
+                  class="section-icon section-icon-link"
+                  :aria-label="`${section.title}をすべて再生`"
+                  title="すべて再生"
+                >{{ sectionIcon(section.type) }}</router-link>
+                <span v-else class="section-icon" aria-hidden="true">{{ sectionIcon(section.type) }}</span>
+                <div>
+                  <h2>{{ section.title }}</h2>
+                  <p>{{ section.items.length }}件 · {{ sectionTypeLabel(section.type) }}</p>
+                </div>
+              </div>
+              <router-link
+                v-if="section.playlistId"
+                :to="`/playlist?list=${encodeURIComponent(section.playlistId)}`"
+                class="section-link"
+              >
+                すべて再生 →
+              </router-link>
+            </div>
+
+            <div class="section-track-shell" :class="section.type">
+              <button
+                v-if="sectionCanScrollLeft(sectionKey(section, sectionIndex))"
+                type="button"
+                class="section-scroll-button scroll-left"
+                :aria-label="`${section.title}を左にスクロール`"
+                @click="scrollSection(sectionKey(section, sectionIndex), -1)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m14.5 5-7 7 7 7" />
+                </svg>
+              </button>
+
+              <div
+                :ref="(element) => setSectionTrackRef(sectionKey(section, sectionIndex), element)"
+                class="section-track"
+                :class="section.type"
+                @scroll.passive="updateSectionScrollState(sectionKey(section, sectionIndex))"
+              >
+                <ChannelContentCard
+                  v-for="(item, itemIndex) in section.items"
+                  :key="itemKey(item, itemIndex)"
+                  :item="item"
+                  :layout="sectionCardLayout(section)"
+                />
+              </div>
+
+              <button
+                v-if="sectionCanScrollRight(sectionKey(section, sectionIndex))"
+                type="button"
+                class="section-scroll-button scroll-right"
+                :aria-label="`${section.title}を右にスクロール`"
+                @click="scrollSection(sectionKey(section, sectionIndex), 1)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m9.5 5 7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          </section>
+
+          <section v-if="!displayedHomeSections.length && !topVideo?.videoId" class="empty-state">
+            <span aria-hidden="true">□</span>
+            <h2>ホームコンテンツがありません</h2>
+            <p>「動画」タブからアップロード一覧を確認できます。</p>
+          </section>
+        </template>
+
+        <template v-else-if="tab === 'videos'">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">VIDEOS</span>
+              <h2>動画</h2>
+              <p>ホームで取得できた詳細情報と、アップロード一覧をまとめて表示します。</p>
+            </div>
+          </div>
+
+          <section v-if="regularVideoItems.length" class="content-grid video-grid">
+            <ChannelContentCard
+              v-for="(item, index) in regularVideoItems"
+              :key="itemKey(item, index)"
+              :item="item"
+              layout="grid"
+            />
+          </section>
+
+          <section v-if="channel.uploadsPlaylistId" class="all-uploads">
+            <div class="subsection-heading">
+              <h3>すべてのアップロード</h3>
+              <router-link :to="`/playlist?list=${encodeURIComponent(channel.uploadsPlaylistId)}`">
+                再生リストで開く →
+              </router-link>
+            </div>
+            <VideoList :playlist-id="channel.uploadsPlaylistId" displayType="channel" />
+          </section>
+
+          <section v-if="!regularVideoItems.length && !channel.uploadsPlaylistId" class="empty-state">
+            <h2>動画が見つかりませんでした</h2>
+          </section>
+        </template>
+
+        <template v-else-if="tab === 'shorts'">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">SHORTS</span>
+              <h2>ショート</h2>
+              <p>{{ shortItems.length }}件のコンテンツ</p>
+            </div>
+          </div>
+          <section class="content-grid shorts-grid">
+            <ChannelContentCard
+              v-for="(item, index) in shortItems"
+              :key="itemKey(item, index)"
+              :item="item"
+              layout="short"
+            />
+          </section>
+        </template>
+
+        <template v-else-if="tab === 'live'">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">LIVE</span>
+              <h2>ライブ・配信</h2>
+              <p>{{ liveItems.length }}件のコンテンツ</p>
+            </div>
+          </div>
+          <section class="content-grid video-grid">
+            <ChannelContentCard
+              v-for="(item, index) in liveItems"
+              :key="itemKey(item, index)"
+              :item="item"
+              layout="grid"
+            />
+          </section>
+        </template>
+
+        <template v-else-if="tab === 'posts'">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">COMMUNITY</span>
+              <h2>投稿</h2>
+              <p>{{ postItems.length }}件のコンテンツ</p>
+            </div>
+          </div>
+          <section class="posts-grid">
+            <ChannelContentCard
+              v-for="(item, index) in postItems"
+              :key="itemKey(item, index)"
+              :item="item"
+              layout="post"
+            />
+          </section>
+        </template>
+
+        <template v-else-if="tab === 'playlists'">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">COLLECTIONS</span>
+              <h2>再生リスト</h2>
+              <p>{{ playlistItems.length || playlistShelves.length }}件のコンテンツ</p>
+            </div>
+          </div>
+          <section v-if="playlistItems.length" class="content-grid video-grid">
+            <ChannelContentCard
+              v-for="(item, index) in playlistItems"
+              :key="itemKey(item, index)"
+              :item="item"
+              layout="grid"
+            />
+          </section>
+
+          <section v-if="playlistShelves.length" class="playlist-directory">
+            <h3>ホームの再生セクション</h3>
+            <router-link
+              v-for="(section, index) in playlistShelves"
+              :key="sectionKey(section, index)"
+              :to="`/playlist?list=${encodeURIComponent(section.playlistId)}`"
+              class="directory-row"
+            >
+              <span class="directory-icon" aria-hidden="true">▤</span>
+              <span>
+                <strong>{{ section.title }}</strong>
+                <small>{{ section.items.length }}件</small>
+              </span>
+              <span class="directory-arrow">→</span>
+            </router-link>
+          </section>
+        </template>
+
+        <template v-else-if="tab === 'about'">
+          <div class="page-heading">
+            <div>
+              <span class="section-kicker">ABOUT</span>
+              <h2>チャンネル概要</h2>
+            </div>
+          </div>
+
+          <div class="about-layout">
+            <section class="about-card description-card">
+              <h3>説明</h3>
+              <p v-if="descriptionText">{{ descriptionText }}</p>
+              <p v-else class="muted">説明はありません。</p>
+            </section>
+
+            <aside class="about-card details-card">
+              <h3>詳細</h3>
+              <dl>
+                <div v-if="channel.videoCount">
+                  <dt>チャンネル情報</dt>
+                  <dd>{{ channel.videoCount }}</dd>
+                </div>
+                <div>
+                  <dt>チャンネルID</dt>
+                  <dd><code>{{ channel.channelId || effectiveId }}</code></dd>
+                </div>
+                <div v-if="channel.uploadsPlaylistId">
+                  <dt>アップロードID</dt>
+                  <dd><code>{{ channel.uploadsPlaylistId }}</code></dd>
+                </div>
+                <div>
+                  <dt>ホームセクション</dt>
+                  <dd>{{ homeSections.length }}</dd>
+                </div>
+                <div>
+                  <dt>取得コンテンツ</dt>
+                  <dd>{{ homeItemCount }}</dd>
+                </div>
+              </dl>
+              <a :href="youtubeChannelUrl" target="_blank" rel="noopener noreferrer" class="wide-link">
+                YouTubeでチャンネルを開く ↗
+              </a>
+            </aside>
+          </div>
+
+          <section v-if="homeSections.length" class="section-directory about-card">
+            <h3>取得したセクション</h3>
+            <div class="section-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>セクション</th>
+                    <th>種類</th>
+                    <th>件数</th>
+                    <th>参照ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(section, index) in homeSections" :key="sectionKey(section, index)">
+                    <td>{{ section.title }}</td>
+                    <td>{{ sectionTypeLabel(section.type) }}</td>
+                    <td>{{ section.items.length }}</td>
+                    <td><code>{{ section.playlistId || section.browseId || "—" }}</code></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </template>
       </div>
-    </div>
-  </div>
+    </template>
+  </main>
 </template>
 
 <script setup>
-import settingIcon from "/Image/linkicon.txt?raw";
-import { ref, onMounted, watch, computed, onUnmounted } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute } from "vue-router";
+import ChannelContentCard from "@/components/ChannelContentCard.vue";
 import VideoList from "@/components/Playlist.vue";
-import { apiRequest } from "@/services/requestManager";
+import { channel as fetchChannel } from "@/services/siatubeApi";
+import { normalizeChannel } from "@/utils/siatubeAdapters";
 import subscriptionManager from "@/utils/subscriptionManager";
 
 const props = defineProps({ channelId: String });
-
-// ルートパラメータ
 const route = useRoute();
-const effectiveId = computed(() => props.channelId || route.params.id);
+const effectiveId = computed(() => props.channelId || route.params.id || "");
 
-// 状態
 const channel = ref(null);
 const tab = ref("home");
 const loadingChannel = ref(false);
+const errorMessage = ref("");
 const subscribed = ref(false);
+const descriptionExpanded = ref(false);
+const avatarFailed = ref(false);
+const bannerFailed = ref(false);
+const featureImageFailed = ref(false);
+const sectionScrollState = reactive({});
+const sectionTrackElements = new Map();
+let channelRequestSequence = 0;
+let sectionTrackResizeObserver = null;
+
+const homeSections = computed(() =>
+  (channel.value?.sections || []).filter((section) => section?.items?.length)
+);
+const topVideo = computed(() => channel.value?.topVideo || null);
+const displayedHomeSections = computed(() => {
+  const topVideoId = topVideo.value?.videoId;
+  return homeSections.value
+    .map((section, index) => {
+      if (index !== 0 || !topVideoId) return section;
+      return {
+        ...section,
+        items: section.items.filter((item) => item.videoId !== topVideoId),
+      };
+    })
+    .filter((section) => section.items.length);
+});
+const descriptionText = computed(() => plainText(channel.value?.description));
+const descriptionIsLong = computed(
+  () => descriptionText.value.length > 180 || descriptionText.value.split("\n").length > 3
+);
+const channelInitial = computed(() => (channel.value?.title || "C").trim().slice(0, 1).toUpperCase());
+const youtubeChannelUrl = computed(
+  () => `https://www.youtube.com/channel/${encodeURIComponent(channel.value?.channelId || effectiveId.value)}`
+);
+
+const allSectionItems = computed(() => homeSections.value.flatMap((section) => section.items));
+
+const postItems = computed(() =>
+  uniqueItems([
+    ...(channel.value?.posts || []),
+    ...allSectionItems.value.filter((item) => item.type === "post"),
+  ])
+);
+const liveItems = computed(() =>
+  uniqueItems([
+    ...(channel.value?.live || []),
+    ...allSectionItems.value.filter(
+      (item) => item.type !== "post" && (item.isLive || item.isUpcoming || item.streamStatus)
+    ),
+  ])
+);
+const shortItems = computed(() =>
+  uniqueItems([
+    ...(channel.value?.shorts || []),
+    ...allSectionItems.value.filter((item) => item.type === "short"),
+  ])
+);
+const playlistItems = computed(() =>
+  uniqueItems(allSectionItems.value.filter((item) => item.type === "playlist"))
+);
+const regularVideoItems = computed(() =>
+  uniqueItems(
+    allSectionItems.value.filter(
+      (item) =>
+        item.type === "video" &&
+        !item.isLive &&
+        !item.isUpcoming &&
+        !item.streamStatus
+    )
+  )
+);
+const allUniqueItems = computed(() => uniqueItems(allSectionItems.value));
+const homeItemCount = computed(() => allUniqueItems.value.length);
+const playlistShelves = computed(() => {
+  const seen = new Set();
+  return homeSections.value.filter((section) => {
+    if (!section.playlistId || seen.has(section.playlistId)) return false;
+    seen.add(section.playlistId);
+    return true;
+  });
+});
+
+const tabs = computed(() => {
+  const result = [{ id: "home", label: "ホーム", count: null }];
+  if (regularVideoItems.value.length || channel.value?.uploadsPlaylistId) {
+    result.push({ id: "videos", label: "動画", count: regularVideoItems.value.length || null });
+  }
+  if (shortItems.value.length) result.push({ id: "shorts", label: "ショート", count: shortItems.value.length });
+  if (liveItems.value.length) result.push({ id: "live", label: "ライブ", count: liveItems.value.length });
+  if (postItems.value.length) result.push({ id: "posts", label: "投稿", count: postItems.value.length });
+  if (playlistItems.value.length || playlistShelves.value.length) {
+    result.push({ id: "playlists", label: "再生リスト", count: playlistItems.value.length || playlistShelves.value.length });
+  }
+  result.push({ id: "about", label: "概要", count: null });
+  return result;
+});
+
+const featureImage = computed(() =>
+  topVideo.value?.thumbnail ||
+  topVideo.value?.thumbnailUrl ||
+  (topVideo.value?.videoId
+    ? `https://i.ytimg.com/vi/${topVideo.value.videoId}/maxresdefault.jpg`
+    : "")
+);
+const topVideoMeta = computed(() => {
+  const title = plainText(topVideo.value?.title).replace(/\s+/g, " ").toLocaleLowerCase();
+  return [topVideo.value?.author, topVideo.value?.viewCount, topVideo.value?.published]
+    .filter(Boolean)
+    .filter((value) => {
+      const meta = plainText(value).replace(/\s+/g, " ").toLocaleLowerCase();
+      return meta && (!title || (meta !== title && !(title.length >= 6 && meta.includes(title))));
+    })
+    .filter((value, index, values) => values.indexOf(value) === index);
+});
+const topVideoStatus = computed(() => {
+  if (topVideo.value?.isLive || topVideo.value?.streamStatus === "live") return "● ライブ配信中";
+  if (topVideo.value?.isUpcoming || topVideo.value?.streamStatus === "upcoming") return "配信予定";
+  if (topVideo.value?.streamStatus === "ended") return "配信済み";
+  return "注目のコンテンツ";
+});
+
+function uniqueItems(items) {
+  const seen = new Set();
+  return (items || []).filter((item, index) => {
+    if (!item) return false;
+    const key = item.videoId || item.playlistId || item.postId || item.url || `${item.type}:${item.title}:${index}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function plainText(value) {
+  return String(value || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .trim();
+}
+
+function itemKey(item, index) {
+  return item.videoId || item.playlistId || item.postId || item.url || `${item.type}-${index}`;
+}
+
+function sectionKey(section, index) {
+  return section.playlistId || section.browseId || `${section.type}-${section.title}-${index}`;
+}
+
+function sectionTypeLabel(type) {
+  return {
+    videos: "動画",
+    shorts: "ショート",
+    live: "ライブ",
+    posts: "投稿",
+    playlists: "再生リスト",
+    members: "メンバー向け",
+    mixed: "ミックス",
+  }[type] || "コンテンツ";
+}
+
+function sectionIcon(type) {
+  return {
+    videos: "▷",
+    shorts: "▯",
+    live: "◉",
+    posts: "◫",
+    playlists: "▤",
+    members: "♢",
+    mixed: "◇",
+  }[type] || "◇";
+}
+
+function sectionCardLayout(section) {
+  if (section.type === "posts") return "post";
+  if (section.type === "shorts") return "short";
+  return "shelf";
+}
+
+function setSectionTrackRef(key, element) {
+  const previousElement = sectionTrackElements.get(key);
+  if (previousElement === element) return;
+
+  if (previousElement) sectionTrackResizeObserver?.unobserve(previousElement);
+
+  if (!element) {
+    sectionTrackElements.delete(key);
+    delete sectionScrollState[key];
+    return;
+  }
+
+  sectionTrackElements.set(key, element);
+  sectionTrackResizeObserver?.observe(element);
+  nextTick(() => updateSectionScrollState(key));
+}
+
+function updateSectionScrollState(key) {
+  const element = sectionTrackElements.get(key);
+  if (!element) return;
+
+  const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
+  const scrollLeft = Math.max(0, element.scrollLeft);
+  const edgeTolerance = 2;
+  const canScrollLeft = scrollLeft > edgeTolerance;
+  const canScrollRight = maxScrollLeft - scrollLeft > edgeTolerance;
+  const currentState = sectionScrollState[key];
+
+  if (
+    currentState?.canScrollLeft === canScrollLeft &&
+    currentState?.canScrollRight === canScrollRight
+  ) return;
+
+  sectionScrollState[key] = { canScrollLeft, canScrollRight };
+}
+
+function sectionCanScrollLeft(key) {
+  return sectionScrollState[key]?.canScrollLeft === true;
+}
+
+function sectionCanScrollRight(key) {
+  return sectionScrollState[key]?.canScrollRight === true;
+}
+
+function scrollSection(key, direction) {
+  const element = sectionTrackElements.get(key);
+  if (!element) return;
+
+  const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  element.scrollBy({
+    left: direction * element.clientWidth * 0.85,
+    behavior: prefersReducedMotion ? "auto" : "smooth",
+  });
+}
 
 function updateSubscribed() {
   subscribed.value = subscriptionManager.isSubscribed(effectiveId.value);
 }
 
+function handleSubscriptionStorage(event) {
+  if (event.key === "subscriptions_v1") updateSubscribed();
+}
+
 async function toggleSubscribeOnChannel() {
+  const id = effectiveId.value;
+  if (!id || !channel.value) return;
+
   try {
-    const id = effectiveId.value;
-    if (!id) return;
     if (subscriptionManager.isSubscribed(id)) {
       subscriptionManager.removeSubscription(id);
       subscribed.value = false;
-      try {
-        window.dispatchEvent(new CustomEvent("subscriptions-changed"));
-      } catch (e) {}
     } else {
-      // Optimistically add (use avatar URL if present so the icon displays immediately)
-      const initialIcon = channel.value?.avatar || null;
+      const sourceIcon = channel.value.avatar || null;
       subscriptionManager.addSubscription({
         id,
-        name: channel.value?.title || "",
-        icon: initialIcon,
+        name: channel.value.title || "",
+        icon: sourceIcon,
       });
       subscribed.value = true;
-      try {
-        window.dispatchEvent(new CustomEvent("subscriptions-changed"));
-      } catch (e) {}
-      // Fetch icon async
-      (async () => {
+
+      if (sourceIcon && !sourceIcon.startsWith("data:")) {
         try {
-          const icon = channel.value?.avatar
-            ? await subscriptionManager.fetchImageAsBase64(channel.value.avatar)
-            : null;
-          if (icon) {
-            subscriptionManager.updateSubscription(id, { icon });
-          } else if (channel.value?.avatar) {
-            subscriptionManager.updateSubscription(id, {
-              icon: channel.value.avatar,
-            });
-          }
-        } catch (e) {
-          console.warn("icon fetch failed", e);
+          const icon = await subscriptionManager.fetchImageAsBase64(sourceIcon);
+          if (icon) subscriptionManager.updateSubscription(id, { icon });
+        } catch (error) {
+          console.warn("チャンネルアイコンの保存に失敗しました", error);
         }
-      })();
+      }
     }
-  } catch (e) {
-    console.error("toggleSubscribeOnChannel error", e);
+    window.dispatchEvent(new CustomEvent("subscriptions-changed"));
+  } catch (error) {
+    console.error("チャンネル登録状態の更新に失敗しました", error);
   }
 }
 
-// デフォルト画像
-const defaultAvatar = "/default-avatar.png";
-const defaultBanner = "/default-banner.png";
-
-// 関数
-function getPrimaryThumbnail(id) {
-  return `https://i.ytimg.com/vi/${id}/sddefault.jpg`;
+function resetVisualState() {
+  avatarFailed.value = false;
+  bannerFailed.value = false;
+  featureImageFailed.value = false;
+  descriptionExpanded.value = false;
 }
 
-function onImageError(event, id) {
-  if (!event.target.dataset.error) {
-    event.target.src = `https://i.ytimg.com/vi/${id}/sddefault.jpg`;
-    event.target.dataset.error = true;
+async function fetchChannelInfo(channelId) {
+  if (!channelId) {
+    channel.value = null;
+    errorMessage.value = "チャンネルIDが指定されていません。";
+    return;
   }
-}
 
-function fetchChannelInfo(channelId) {
+  const sequence = ++channelRequestSequence;
   loadingChannel.value = true;
+  errorMessage.value = "";
   channel.value = null;
-  apiRequest({
-    params: { channel: channelId },
-    method: "GET",
-    retries: 2,
-    timeout: 15000,
-  })
-    .then((data) => {
-      channel.value = data;
-    })
-    .catch((err) => {
-      console.error("チャンネル情報取得失敗:", err);
-      channel.value = null;
-    })
-    .finally(() => {
-      loadingChannel.value = false;
-    });
+  resetVisualState();
+
+  try {
+    const data = await fetchChannel(channelId, { retries: 2, timeout: 30_000 });
+    if (sequence !== channelRequestSequence || channelId !== effectiveId.value) return;
+    const normalized = normalizeChannel(data);
+    if (!normalized?.title) throw new Error("チャンネル名を取得できませんでした");
+    channel.value = normalized;
+  } catch (error) {
+    if (sequence !== channelRequestSequence || channelId !== effectiveId.value) return;
+    console.error("チャンネル情報取得失敗:", error);
+    channel.value = null;
+    errorMessage.value = error?.message || "チャンネル情報の取得に失敗しました。";
+  } finally {
+    if (sequence === channelRequestSequence) loadingChannel.value = false;
+  }
 }
 
 function reloadChannel() {
-  fetchChannelInfo(route.params.id);
+  fetchChannelInfo(effectiveId.value);
 }
 
-// 初回取得
+function handleFeatureImageError(event) {
+  const element = event.currentTarget;
+  const urlFallback = topVideo.value?.thumbnailUrl;
+  const youtubeFallback = topVideo.value?.videoId
+    ? `https://i.ytimg.com/vi/${topVideo.value.videoId}/hqdefault.jpg`
+    : "";
+
+  if (urlFallback && element.src !== urlFallback && element.dataset.urlFallback !== "true") {
+    element.dataset.urlFallback = "true";
+    element.src = urlFallback;
+    return;
+  }
+  if (youtubeFallback && element.src !== youtubeFallback && element.dataset.youtubeFallback !== "true") {
+    element.dataset.youtubeFallback = "true";
+    element.src = youtubeFallback;
+    return;
+  }
+  featureImageFailed.value = true;
+}
+
 onMounted(() => {
+  if (typeof ResizeObserver !== "undefined") {
+    sectionTrackResizeObserver = new ResizeObserver((entries) => {
+      entries.forEach(({ target }) => {
+        for (const [key, element] of sectionTrackElements) {
+          if (element === target) {
+            updateSectionScrollState(key);
+            break;
+          }
+        }
+      });
+    });
+    sectionTrackElements.forEach((element) => sectionTrackResizeObserver.observe(element));
+  }
+
   fetchChannelInfo(effectiveId.value);
   updateSubscribed();
   window.addEventListener("subscriptions-changed", updateSubscribed);
-  window.addEventListener("storage", (e) => {
-    if (e.key === "subscriptions_v1") updateSubscribed();
-  });
+  window.addEventListener("storage", handleSubscriptionStorage);
 });
 
-// ID変更時（prop かルートどちらでも追跡）
-watch(
-  () => effectiveId.value,
-  (newId, oldId) => {
-    if (newId !== oldId) {
-      fetchChannelInfo(newId);
-      updateSubscribed();
-      window.scrollTo(0, 0);
-    }
-  }
-);
-
-onUnmounted(() => {
-  window.removeEventListener("subscriptions-changed", updateSubscribed);
+watch(effectiveId, (newId, oldId) => {
+  if (newId === oldId) return;
+  tab.value = "home";
+  fetchChannelInfo(newId);
+  updateSubscribed();
+  window.scrollTo({ top: 0, behavior: "auto" });
 });
 
-// channel変更時にタイトル更新
+watch(tabs, (availableTabs) => {
+  if (!availableTabs.some((item) => item.id === tab.value)) tab.value = "home";
+});
+
 watch(
-  () => channel.value,
-  (newChannel) => {
-    document.title = newChannel?.title || "読み込み中…";
+  () => channel.value?.title,
+  (title) => {
+    document.title = title || (loadingChannel.value ? "読み込み中…" : "チャンネル");
   },
   { immediate: true }
 );
+
+onUnmounted(() => {
+  channelRequestSequence += 1;
+  sectionTrackResizeObserver?.disconnect();
+  sectionTrackResizeObserver = null;
+  sectionTrackElements.clear();
+  window.removeEventListener("subscriptions-changed", updateSubscribed);
+  window.removeEventListener("storage", handleSubscriptionStorage);
+});
 </script>
 
 <style scoped>
-.page-end-tab {
-  margin: 0 auto;
-  text-decoration: underline;
-  font-size: 21px;
-}
-
-.subscribe-btn {
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+.channel-page {
+  min-height: 100vh;
   color: var(--text-primary);
-  cursor: pointer;
-}
-.subscribe-btn.subscribed {
-  background: var(--accent-color);
-  color: var(--on-accent);
-  border-color: rgba(0, 0, 0, 0.05);
-}
-.page-end {
-  text-align: center;
-}
-
-.left-text {
-  font-size: 1.1rem;
-  margin-block-end: 0.1em;
-  margin-top: 1;
-  line-height: 1.3;
-  max-height: calc(1.3em * 2);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  text-overflow: ellipsis;
-  white-space: normal;
-}
-
-.center-text {
-  text-align: center;
-}
-
-.left-text {
-  text-align: left;
-  font-size: 18px;
-}
-
-.center {
-  text-align: center;
-}
-
-.round {
-  width: 103px;
-  height: 103px;
-  border-radius: 50%;
-  object-fit: cover;
-  display: inline-block;
-}
-
-.playlist-video-link-to {
-  font-size: 16px;
-  font-weight: normal;
-  color: var(--text-primary);
-  text-decoration: none;
-  position: relative;
-  cursor: pointer;
-}
-
-.playlist-video-link-to::before {
-  content: "";
-  display: inline-block;
-  width: 20px;
-}
-
-.playlist-video-link-to:hover {
-  text-decoration: underline;
-  text-decoration-color: var(--text-primary);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-}
-
-.playlist-items-scroll {
-  display: flex;
-  gap: 12px;
-  overflow-x: auto;
-  padding-bottom: 6px;
-}
-
-.playlist-item {
-  width: 210px;
-  flex-shrink: 0;
   background: var(--bg-primary);
-  border-radius: 8px;
-  box-shadow: 0 0 6px rgba(0, 0, 0, 0.1);
-  transition: box-shadow 0.2s, background-color 0.3s ease;
-  padding: 8px;
+}
+
+.channel-shell {
+  width: min(1440px, calc(100% - 48px));
+  margin-inline: auto;
+}
+
+.channel-hero {
   overflow: hidden;
-  border: 1px solid var(--border-color);
-}
-
-.playlist-item:hover {
-  box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
-}
-
-.playlist-item .video-link {
-  display: flex;
-  flex-direction: column;
-  text-decoration: none;
-  color: inherit;
-  height: 100%;
-}
-
-.playlist-item .thumbnail-wrapper {
-  position: relative;
-  width: 100%;
-  height: 118px;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.playlist-item .thumbnail {
-  width: 100%;
-  height: 118px;
-  object-fit: cover;
-  background-color: var(--bg-secondary);
-  border-radius: 8px;
-}
-
-.playlist-item .duration {
-  position: absolute;
-  bottom: 6px;
-  right: 6px;
-  padding: 2px 6px;
-  font-size: 0.8rem;
-  color: var(--on-accent);
-  background-color: rgba(0, 0, 0, 0.7);
-  border-radius: 3px;
-  user-select: none;
-}
-
-.playlist-item .title {
-  font-weight: 600;
-  margin-top: 8px;
-  font-size: 1rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  width: 100%;
-  display: block;
-  color: var(--text-primary);
-}
-
-.playlist-item .author {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-
-.playlist-item .meta {
-  font-size: 0.79rem;
-  color: var(--text-secondary);
-  margin-top: 0px;
-}
-
-.channel-view {
-  padding: 16px;
-  max-width: 95%;
-  margin: 0 auto;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .banner {
-  width: 100%;
-  height: 200px;
-  background-size: cover;
-  background-position: center;
-  border-radius: 8px;
-  margin-bottom: 1rem;
-  background-color: var(--bg-secondary);
-}
-
-.channel-header {
-  display: flex;
-  align-items: center;
-  margin-bottom: 1.5rem;
-}
-
-.avatar {
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  object-fit: cover;
-  background-color: var(--bg-secondary);
-}
-
-.info {
-  margin-left: 16px;
-  flex-grow: 1;
-}
-
-.info h2 {
-  margin: 0 0 8px;
-  font-size: 1.8rem;
-}
-
-.video-count {
-  margin: 0 0 8px;
-  color: var(--text-secondary);
-}
-
-.description {
-  margin: 0;
-  color: var(--text-primary);
-  white-space: pre-wrap;
-}
-
-.tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 1.5rem;
-  padding: 10px 0;
-  border-radius: 0;
-  border: none;
-  border-radius: 6px;
-  background: var(--bg-primary);
-  cursor: pointer;
-  font-size: 1.3rem;
-  color: var(--text-primary);
-  transition: background-color 0.3s ease, color 0.3s ease;
-}
-
-.tabs .active {
-  border-bottom: 2px solid var(--text-primary);
-  color: var(--text-primary);
-}
-
-.tab-content {
-  margin-top: 1rem;
-}
-
-.top-video {
-  display: flex;
-  gap: 16px;
-  margin-bottom: 2rem;
-}
-
-.top-video-link {
-  display: flex;
-  gap: 16px;
-  text-decoration: none;
-  color: inherit;
-  width: 100%;
-}
-
-.thumbnail-wrapper {
   position: relative;
-  width: 400px;
-  height: 224px;
-  flex-shrink: 0;
+  height: clamp(150px, 22vw, 340px);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 20%, rgb(0 132 255 / 0.45), transparent 34%),
+    radial-gradient(circle at 78% 70%, rgb(255 0 51 / 0.32), transparent 36%),
+    linear-gradient(135deg, #181d2b, #30384c 52%, #17191f);
 }
 
-.small-thumb {
-  width: 160px;
-  height: 90px;
-}
-
-.top-video .thumbnail,
-.video-item .thumbnail {
+.banner-image {
   width: 100%;
   height: 100%;
-  border-radius: 8px;
+  display: block;
   object-fit: cover;
-  background-color: var(--bg-secondary);
 }
 
-.top-video .duration {
+.banner.has-image::after {
+  content: "";
   position: absolute;
-  bottom: 6px;
-  right: 6px;
-  padding: 2px 6px;
-  font-size: 0.8rem;
-  color: var(--on-accent);
-  background-color: rgba(0, 0, 0, 0.7);
-  border-radius: 3px;
-  user-select: none;
+  inset: 45% 0 0;
+  background: linear-gradient(transparent, rgb(0 0 0 / 0.42));
+  pointer-events: none;
 }
 
-.top-video-info {
-  flex: 1;
+.banner-pattern {
+  position: absolute;
+  inset: 0;
+  opacity: 0.15;
+  background-image: linear-gradient(120deg, transparent 48%, rgb(255 255 255 / 0.22) 50%, transparent 52%);
+  background-size: 46px 46px;
+  pointer-events: none;
+}
+
+.hero-content {
+  position: relative;
+  display: grid;
+  grid-template-columns: 156px minmax(0, 1fr);
+  gap: 30px;
+  padding: 0 0 30px;
+}
+
+.channel-avatar-wrap {
+  margin-top: -64px;
+  z-index: 2;
+}
+
+.channel-avatar {
+  width: 156px;
+  height: 156px;
+  display: block;
+  border: 5px solid var(--bg-primary);
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-secondary);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.18);
+}
+
+.avatar-fallback {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(145deg, #0084ff, #6f42c1);
+  font-size: 3.8rem;
+  font-weight: 900;
+}
+
+.identity {
+  min-width: 0;
+  padding-top: 23px;
+}
+
+.title-line {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
 }
 
-.top-video-info p {
-  margin: 4px 0;
-}
-
-.description-text {
-  white-space: normal;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  max-height: 120px;
+.section-kicker {
+  display: block;
+  margin-bottom: 5px;
   color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.title-line h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 4vw, 3.5rem);
+  line-height: 1.06;
+  letter-spacing: -0.045em;
+  overflow-wrap: anywhere;
+}
+
+.hero-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 9px;
+}
+
+.subscribe-button {
+  background: var(--subscription-bc-collar);
+  color: var(--normal-color);
+}
+
+.subscribe-button,
+.secondary-button,
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 17px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-decoration: none;
+  transition: transform 160ms ease, opacity 160ms ease, background 160ms ease;
+}
+
+.secondary-button,
+.primary-button {
+  background: var(--text-primary);
+  color: var(--on-accent);
+}
+
+.subscribe-button:hover,
+.secondary-button:hover,
+.primary-button:hover {
+  transform: translateY(-1px);
+  opacity: 0.88;
+}
+
+.subscribe-button.subscribed {
+  border-color: var(--border-color);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.secondary-button {
+  border-color: var(--border-color);
+  color: var(--text-primary);
+  background: transparent;
+}
+
+.channel-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 0;
+  margin-top: 14px;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+}
+
+.channel-meta span:not(:last-child)::after {
+  content: "•";
+  margin: 0 9px;
+  opacity: 0.55;
+}
+
+.channel-meta .important-meta {
+  color: var(--text-primary);
+  font-weight: 750;
+}
+
+.hero-description-wrap {
+  max-width: 960px;
+  margin-top: 14px;
+}
+
+.hero-description {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.hero-description.expanded {
+  display: block;
+  overflow: visible;
+}
+
+.text-button {
+  margin-top: 5px;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  color: var(--text-primary);
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.channel-nav {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.tab-strip {
+  display: flex;
+  gap: 28px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-strip button {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 17px 0 15px;
+  border: 0;
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.tab-strip button::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--text-primary);
+  transform: scaleX(0);
+  transition: transform 180ms ease;
+}
+
+.tab-strip button.active {
+  color: var(--text-primary);
+}
+
+.tab-strip button.active::after {
+  transform: scaleX(1);
+}
+
+.tab-count {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  margin-left: 5px;
+  padding: 0 5px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  font-size: 0.66rem;
+}
+
+.page-content {
+  padding-top: 38px;
+  padding-bottom: 80px;
+}
+
+.featured-section {
+  margin-bottom: 34px;
+}
+
+.featured-card {
+  display: grid;
+  grid-template-columns: 35rem minmax(0, 1fr);
+  height: 19.6875rem;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 22px;
+  color: inherit;
+  background: var(--bg-secondary);
+  text-decoration: none;
+  box-shadow: 0 18px 55px rgb(0 0 0 / 0.07);
+}
+
+.featured-media {
+  position: relative;
+  width: 35rem;
+  max-width: 100%;
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+  align-self: start;
+  overflow: hidden;
+  background: #171717;
+}
+
+.featured-media img,
+.feature-placeholder {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  display: block;
+  object-fit: cover;
+  transition: transform 300ms ease;
+}
+
+.featured-card:hover .featured-media img {
+  transform: scale(1.02);
+}
+
+.feature-placeholder {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(145deg, #222936, #111318);
+  font-size: 3rem;
+}
+
+.feature-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 65%, rgb(0 0 0 / 0.2));
+}
+
+.feature-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 0.6);
+  border-radius: 50%;
+  color: #111;
+  background: rgb(255 255 255 / 0.92);
+  box-shadow: 0 10px 35px rgb(0 0 0 / 0.24);
+  transform: translate(-50%, -50%);
+}
+
+.feature-duration {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.78);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.featured-copy {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 22px 28px 48px;
+}
+
+.feature-status {
+  margin-bottom: 8px;
+  color: var(--accent-color);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.featured-copy h2 {
+  padding-block-end: 4px;
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  font-size: clamp(1.35rem, 2.2vw, 2rem);
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.feature-meta {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.feature-meta span:not(:last-child)::after {
+  content: "・";
+  margin: 0 3px;
+}
+
+.featured-copy p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 9px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.7;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+
+.feature-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 8px;
 }
 
-.playlists {
-  margin-top: 1rem;
+.feature-badges span {
+  padding: 4px 7px;
+  border-radius: 5px;
+  color: var(--text-secondary);
+  background: var(--hover-bg);
+  font-size: 0.7rem;
+  font-weight: 800;
 }
 
-.playlist-wrapper {
-  margin-bottom: 2rem;
-}
-
-.playlist-title {
-  font-weight: bold;
-  margin-bottom: 0.5rem;
-}
-
-.video-list.compact {
-  list-style: none;
-  padding: 0;
+.watch-action {
+  position: absolute;
+  right: 28px;
+  bottom: 18px;
   margin: 0;
+  font-size: 0.86rem;
+  text-align: right;
+}
+
+.watch-action span {
+  display: inline-block;
+  margin-left: 8px;
+  transition: transform 160ms ease;
+}
+
+.featured-card:hover .watch-action span {
+  transform: translateX(4px);
+}
+
+.channel-section {
+  margin-top: 54px;
+}
+
+.section-heading,
+.subsection-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+
+.heading-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.section-icon {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 16px;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 1.15rem;
+  text-decoration: none;
 }
 
-.video-item {
+.section-icon-link {
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.section-icon-link:hover {
+  background: var(--hover-bg);
+  transform: translateY(-2px);
+}
+
+.section-icon-link:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.section-heading h2,
+.subsection-heading h3,
+.playlist-directory h3 {
+  margin: 0;
+  font-size: 1.32rem;
+  letter-spacing: -0.025em;
+}
+
+.section-heading p {
+  margin: 3px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+}
+
+.section-link,
+.subsection-heading a {
+  flex: 0 0 auto;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.section-link:hover,
+.subsection-heading a:hover {
+  text-decoration: underline;
+}
+
+.section-track-shell {
+  position: relative;
+}
+
+.section-track {
+  display: flex;
+  align-items: flex-start;
+  gap: 17px;
+  overflow-x: auto;
+  padding: 2px 2px 18px;
+  scroll-snap-type: x proximity;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.section-scroll-button {
+  position: absolute;
+  z-index: 4;
+  top: 80px;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--text-primary);
   background: var(--bg-primary);
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 0 6px rgb(0 0 0 / 0.1);
-  transition: box-shadow 0.2s;
-  padding: 8px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+  transform: translateY(-50%);
+  transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
-.video-item:hover {
-  box-shadow: 0 0 12px rgb(0 0 0 / 0.15);
+.section-scroll-button:hover {
+  background: var(--hover-bg);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.26);
+  transform: translateY(-50%) scale(1.05);
 }
 
-.loading {
-  padding: 20px;
-  text-align: center;
+.section-scroll-button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.section-scroll-button svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+}
+
+.section-scroll-button.scroll-left {
+  left: -18px;
+}
+
+.section-scroll-button.scroll-right {
+  right: -18px;
+}
+
+.section-track-shell.shorts .section-scroll-button {
+  top: 187px;
+}
+
+.section-track-shell.posts .section-scroll-button {
+  top: 50%;
+}
+
+.section-track > * {
+  scroll-snap-align: start;
+}
+
+.section-track.posts :deep(.content-card) {
+  width: min(520px, 86vw);
+  flex: 0 0 min(520px, 86vw);
+}
+
+.page-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.page-heading h2 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  letter-spacing: -0.045em;
+}
+
+.page-heading p {
+  margin: 8px 0 0;
   color: var(--text-secondary);
 }
 
-.skeleton {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    100deg,
-    var(--bg-secondary) 30%,
-    var(--hover-bg) 50%,
-    var(--bg-secondary) 70%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite linear;
-  border-radius: 8px;
+.content-grid {
+  display: grid;
+  gap: 30px 18px;
 }
 
-.skeleton-text {
-  background: var(--border-color);
-  border-radius: 6px;
-  animation: shimmer 1.5s infinite linear;
+.video-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.shorts-grid {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+
+.shorts-grid :deep(.content-card) {
+  width: 100%;
+}
+
+.posts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 18px;
+}
+
+.all-uploads {
+  margin-top: 64px;
+  padding-top: 30px;
+  border-top: 1px solid var(--border-color);
+}
+
+.playlist-directory {
+  max-width: 900px;
+  margin-top: 52px;
+}
+
+.playlist-directory h3 {
+  margin-bottom: 16px;
+}
+
+.directory-row {
+  display: grid;
+  grid-template-columns: 46px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 10px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.directory-row:hover {
+  background: var(--bg-secondary);
+}
+
+.directory-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.directory-row strong,
+.directory-row small {
+  display: block;
+}
+
+.directory-row small {
+  margin-top: 3px;
+  color: var(--text-secondary);
+}
+
+.directory-arrow {
+  font-size: 1.2rem;
+}
+
+.about-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.8fr);
+  gap: 18px;
+}
+
+.about-card {
+  padding: clamp(22px, 4vw, 38px);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  background: var(--bg-primary);
+}
+
+.about-card h3 {
+  margin: 0 0 20px;
+  font-size: 1.18rem;
+}
+
+.description-card p {
+  margin: 0;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--text-secondary);
+}
+
+.details-card dl {
+  margin: 0;
+}
+
+.details-card dl > div {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.details-card dt {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.details-card dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+code {
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.wide-link {
+  display: block;
+  margin-top: 22px;
+  padding: 13px;
+  border-radius: 10px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+
+.section-directory {
+  margin-top: 18px;
+}
+
+.section-table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+th,
+td {
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+th {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+td {
+  font-size: 0.84rem;
+}
+
+.empty-state,
+.error-state {
+  display: grid;
+  min-height: 360px;
+  place-items: center;
+  align-content: center;
+  padding: 40px;
+  text-align: center;
+}
+
+.empty-state > span {
+  font-size: 2.5rem;
+}
+
+.empty-state h2,
+.error-state h1 {
+  margin: 16px 0 7px;
+}
+
+.empty-state p,
+.error-state p {
+  max-width: 580px;
+  margin: 0 0 20px;
+  color: var(--text-secondary);
+}
+
+.error-mark {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--danger-text);
+  background: var(--danger);
+  font-size: 1.6rem;
+  font-weight: 900;
+}
+
+.loading-shell {
+  padding-top: 24px;
+  padding-bottom: 80px;
+}
+
+.skeleton {
+  overflow: hidden;
+  border-radius: 10px;
+  background: linear-gradient(100deg, var(--bg-secondary) 30%, var(--hover-bg) 50%, var(--bg-secondary) 70%);
+  background-size: 220% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+.banner-skeleton {
+  height: clamp(150px, 22vw, 300px);
+}
+
+.loading-identity {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin: 22px 0;
+}
+
+.avatar-skeleton {
+  width: 112px;
+  height: 112px;
+  flex: 0 0 112px;
+  border-radius: 50%;
+}
+
+.loading-copy {
+  width: min(620px, 70%);
+}
+
+.line {
+  width: 100%;
+  height: 13px;
+  margin-top: 11px;
+}
+
+.line-title {
+  width: 55%;
+  height: 34px;
+}
+
+.line-meta {
+  width: 35%;
+}
+
+.line-description {
+  width: 85%;
+}
+
+.line-short {
+  width: 62%;
+}
+
+.tabs-skeleton {
+  height: 48px;
+}
+
+.loading-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 28px 16px;
+  margin-top: 38px;
+}
+
+.loading-thumbnail {
+  aspect-ratio: 16 / 9;
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
+  from { background-position: 200% 0; }
+  to { background-position: -20% 0; }
+}
+
+@media (max-width: 900px) {
+  .section-scroll-button {
+    display: none;
   }
-  100% {
-    background-position: 200% 0;
+
+  .channel-shell {
+    width: min(100% - 30px, 1440px);
+  }
+
+  .hero-content {
+    grid-template-columns: 118px minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .channel-avatar {
+    width: 118px;
+    height: 118px;
+  }
+
+  .channel-avatar-wrap {
+    margin-top: -42px;
+  }
+
+  .title-line {
+    display: block;
+  }
+
+  .hero-actions {
+    margin-top: 16px;
+  }
+
+  .featured-card {
+    grid-template-columns: 55% 45%;
+    height: calc(30.9375vw - 9.28125px);
+  }
+
+  .featured-media {
+    width: 100%;
+    min-height: 0;
+  }
+
+  .feature-overlay {
+    background: linear-gradient(transparent, rgb(0 0 0 / 0.2));
+  }
+
+  .featured-copy {
+    padding: 20px 24px 44px;
+  }
+
+  .watch-action {
+    right: 24px;
+    bottom: 16px;
+  }
+
+  .posts-grid,
+  .about-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .loading-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
-.avatar-wrapper {
-  position: relative;
-  width: 96px;
-  height: 96px;
+@media (max-width: 600px) {
+  .channel-shell {
+    width: min(100% - 22px, 1440px);
+  }
+
+  .banner {
+    height: 130px;
+  }
+
+  .hero-content {
+    display: block;
+    padding-bottom: 22px;
+  }
+
+  .channel-avatar-wrap {
+    width: 94px;
+    margin-top: -45px;
+  }
+
+  .channel-avatar {
+    width: 94px;
+    height: 94px;
+    border-width: 4px;
+  }
+
+  .avatar-fallback {
+    font-size: 2.6rem;
+  }
+
+  .identity {
+    padding-top: 13px;
+  }
+
+  .title-line h1 {
+    font-size: 2rem;
+  }
+
+  .hero-actions {
+    flex-wrap: wrap;
+  }
+
+  .subscribe-button,
+  .secondary-button {
+    min-height: 39px;
+    padding-inline: 14px;
+  }
+
+  .channel-meta span:last-child {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tab-strip {
+    gap: 22px;
+  }
+
+  .page-content {
+    padding-top: 26px;
+  }
+
+  .featured-card {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+    border-radius: 16px;
+  }
+
+  .featured-media {
+    min-height: 0;
+    aspect-ratio: 16 / 9;
+  }
+
+  .featured-copy {
+    height: auto;
+    overflow-y: visible;
+    padding: 22px 22px 52px;
+  }
+
+  .featured-copy p {
+    -webkit-line-clamp: 4;
+  }
+
+  .watch-action {
+    right: 22px;
+  }
+
+  .section-heading {
+    align-items: flex-end;
+  }
+
+  .section-icon {
+    display: none;
+  }
+
+  .video-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .shorts-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 26px 12px;
+  }
+
+  .about-card {
+    padding: 20px;
+  }
+
+  .loading-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-.avatar.skeleton {
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-}
-
-.round.skeleton {
-  width: 103px;
-  height: 103px;
-  border-radius: 50%;
-}
-
-.thumbnail.skeleton {
-  width: 100%;
-  height: 118px;
-  border-radius: 8px;
-}
-
-.reload-btn {
-  padding: 10px 24px;
-  background: var(--text-secondary);
-  color: var(--on-accent);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 1.1em;
-  cursor: pointer;
-  margin-top: 12px;
-  transition: background 0.2s, color 0.2s;
-}
-.reload-btn:hover {
-  background: var(--text-secondary-hover);
-  color: var(--on-accent);
-}
-.error-section {
-  text-align: center;
-  padding: 32px 0;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 </style>

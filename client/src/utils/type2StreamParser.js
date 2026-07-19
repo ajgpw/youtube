@@ -1,4 +1,5 @@
 // Utilities for parsing /api/<id>/type2 responses into the shape expected by StreamType2.vue
+import { isMseHlsSupported } from "@/utils/hlsLoader";
 
 /**
  * レスポンスのフォーマットオブジェクトからコンテナ、圧縮方式、コーデックを抽出し、
@@ -43,7 +44,10 @@ function extractMimeTypeAndCodecs(f) {
 function getSupportLevel(f) {
   try {
     if (f.isM3u8) {
-      return 'probably';
+      const media = document.createElement("video");
+      return media.canPlayType("application/vnd.apple.mpegurl") ||
+        media.canPlayType("application/x-mpegURL") ||
+        (isMseHlsSupported() ? "probably" : "");
     }
 
     const typeStr = extractMimeTypeAndCodecs(f);

@@ -37,12 +37,18 @@ export default {
   data() {
     return {
       localShowFull: this.showFull,
+      scrollAnimationFrame: null,
     };
   },
   watch: {
     showFull(v) {
       this.localShowFull = v;
     },
+  },
+  beforeUnmount() {
+    if (this.scrollAnimationFrame !== null) {
+      cancelAnimationFrame(this.scrollAnimationFrame);
+    }
   },
   methods: {
     toggle() {
@@ -53,14 +59,42 @@ export default {
         // 「一部を表示」に戻したときだけ概要欄の先頭へスクロール
         if (!this.localShowFull) {
           const el = this.$refs.descTop;
-          if (el && typeof el.scrollIntoView === "function") {
-            el.scrollIntoView({
-              behavior: "smooth",
-              block: "start",
-            });
-          }
+          this.scrollToDescription(el);
         }
       });
+    },
+
+    scrollToDescription(element) {
+      if (!element) return;
+      if (this.scrollAnimationFrame !== null) {
+        cancelAnimationFrame(this.scrollAnimationFrame);
+      }
+
+      const startY = window.scrollY;
+      const rect = element.getBoundingClientRect();
+      const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      const targetY = Math.min(maxY, Math.max(0, startY + rect.top));
+      const distance = targetY - startY;
+      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      if (reduceMotion || Math.abs(distance) < 1) {
+        window.scrollTo(0, targetY);
+        this.scrollAnimationFrame = null;
+        return;
+      }
+
+      const duration = Math.min(800, Math.max(300, Math.abs(distance) / 0.8));
+      const startedAt = performance.now();
+      const animate = (now) => {
+        const progress = Math.min(1, (now - startedAt) / duration);
+        const eased = (1 - Math.cos(Math.PI * progress)) / 2;
+        window.scrollTo(0, startY + distance * eased);
+        if (progress < 1) {
+          this.scrollAnimationFrame = requestAnimationFrame(animate);
+        } else {
+          this.scrollAnimationFrame = null;
+        }
+      };
+      this.scrollAnimationFrame = requestAnimationFrame(animate);
     },
   },
 };
@@ -75,6 +109,7 @@ export default {
   margin-bottom: 15px;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-anchor: none;
 }
 
 .description-preview {

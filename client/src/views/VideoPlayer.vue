@@ -1,9 +1,10 @@
 <template>
   <div class="page-container yt-watch-page">
     <div class="main-content" v-if="video">
-      <div class="video-wrapper">
+      <div class="main-video-wrapper">
         <StreamPlayer
           :videoId="videoId"
+          :videoTitle="title"
           :streamType="resolvedStreamType"
           @ended="onPlayerEnded"
           @play-autoplay-candidate="onPlayAutoplayCandidate"
@@ -454,22 +455,53 @@
           "
         />
       </div>
-      <Comment :videoId="videoId" />
+      <Comment :videoId="videoId" :commentToken="video?.Commenttoken || null" />
     </div>
 
+    <section v-else-if="!error" class="main-content watch-loading-state" aria-busy="true">
+      <div class="main-video-wrapper">
+        <PlayerLoading />
+      </div>
+      <div class="loading-video-details" aria-hidden="true">
+        <span class="watch-skeleton loading-title-line"></span>
+        <div class="loading-channel-row">
+          <span class="watch-skeleton loading-channel-avatar"></span>
+          <span class="watch-skeleton loading-channel-name"></span>
+          <span class="watch-skeleton loading-action"></span>
+        </div>
+        <span class="watch-skeleton loading-description-line"></span>
+      </div>
+    </section>
+
+    <section v-else class="main-content watch-error-state" role="alert">
+      <div class="video-error-player">
+        <span class="video-error-icon" aria-hidden="true">!</span>
+        <p>{{ error }}</p>
+        <button class="reload-btn" type="button" @click="reloadVideo">再取得</button>
+      </div>
+    </section>
+
     <RelatedList
-      v-if="relatedVideos.length"
+      v-if="playlistId || relatedVideos.length"
       :relatedVideos="relatedVideos"
       :playlistId="playlistId"
       :currentVideoId="videoId"
       :loadingMore="loadingMore"
       @load-more="loadMoreRelatedVideos"
     />
-    <div v-else-if="error" class="error-msg">
+    <div v-else-if="error && video" class="error-msg">
       ⚠️ {{ error }}<br />
-      <button class="reload-btn" @click="reloadVideo">再取得</button><br>カスタムエンドポイントを設定していない場合、設定からカスタムエンドポイントのを追加してください　＊1~3分で作れます
+      <button class="reload-btn" @click="reloadVideo">再取得</button>
     </div>
-    <p v-else class="loading-msg">読み込み中...</p>
+    <aside v-else-if="!error" class="related-section loading-related" aria-hidden="true">
+      <div v-for="index in 5" :key="index" class="loading-related-row">
+        <span class="watch-skeleton loading-related-thumb"></span>
+        <span class="loading-related-copy">
+          <span class="watch-skeleton"></span>
+          <span class="watch-skeleton short"></span>
+        </span>
+      </div>
+    </aside>
 
     <!-- 自動再生フィルタ通知 -->
     <AutoplayNotification
@@ -499,6 +531,7 @@ import { useRoute } from "vue-router";
 import { ref } from "vue";
 import PlaylistComponent from "@/components/Playlist.vue";
 import Comment from "@/components/Comment.vue";
+import PlayerLoading from "@/components/PlayerLoading.vue";
 import StreamPlayer from "@/components/StreamPlayer.vue";
 window.scrollTo(0, 0);
 
@@ -514,7 +547,7 @@ function switchStream() {
 </script>
 
 <script>
-import { apiRequest } from "@/services/requestManager";
+import { video as fetchVideo } from "@/services/siatubeApi";
 import { addVideoToHistory } from "@/utils/historyManager";
 import PlaylistComponent from "@/components/Playlist.vue";
 import Comment from "@/components/Comment.vue";
@@ -560,6 +593,8 @@ export default {
       loadingMore: false,
       subscribedLocal: false,
       showCollaboratorsPopup: false,
+      videoRequestSequence: 0,
+      relatedRequestSequence: 0,
     };
   },
   computed: {
@@ -661,7 +696,7 @@ export default {
         if (item.type === "playlist") {
           return {
             type: item.type,
-            base64imge: item.thumbnail || "",
+            base64imge: item.thumbnail || item.thumbnails?.[0]?.url || "",
             badge: "",
             title: item.title || "",
             metadataRow1: "再生リスト",
@@ -675,7 +710,7 @@ export default {
         } else {
           return {
             type: item.type,
-            base64imge: item.thumbnail || "",
+            base64imge: item.thumbnail || item.thumbnails?.[0]?.url || "",
             badge: item.badge || "",
             title: item.title || "",
             metadataRow1: item.channelName || "",
@@ -996,6 +1031,10 @@ export default {
     // --- fetchのみ（JSONのみ対応）
     async fetchVideoData(id) {
       const maxRetries = 3;
+      const sequence = ++this.videoRequestSequence;
+      this.relatedRequestSequence += 1;
+      this.loadingMore = false;
+      this.nextContinuationToken = null;
       if (!id) {
         this.video = null;
         this.error = "動画IDが指定されていません。";
@@ -1005,14 +1044,12 @@ export default {
       try {
         this.video = null;
         this.error = null;
-        // requestManager の apiRequest を使って中央集約されたリクエストを実行
-        const data = await apiRequest({
-          // Use raw query formatting required: video=動画ID==p==depth==i==1
-          params: { __rawQuery: `video=${id}==p==depth==i==1` },
-          method: "GET",
+        const data = await fetchVideo(id, {
+          depth: 2,
           retries: maxRetries,
           timeout: 15000,
         });
+        if (sequence !== this.videoRequestSequence || id !== this.videoId) return;
 
         this.video = data;
         this.nextContinuationToken =
@@ -1036,9 +1073,11 @@ export default {
             description: data.description,
             thumbnail: data.thumbnail,
           });
+          if (sequence !== this.videoRequestSequence || id !== this.videoId) return;
         } catch (historyError) {
           console.warn("Failed to save to history:", historyError);
         }
+        if (sequence !== this.videoRequestSequence || id !== this.videoId) return;
 
         if (
           !data["Related-videos"] ||
@@ -1051,6 +1090,7 @@ export default {
         this.showCollaboratorsPopup = false;
         return;
       } catch (err) {
+        if (sequence !== this.videoRequestSequence || id !== this.videoId) return;
         console.error("fetchVideoData error:", err);
         this.video = null;
         // エラーメッセージは既存の UI 用文字列を使う
@@ -1091,33 +1131,42 @@ export default {
     },
     async loadMoreRelatedVideos() {
       if (!this.nextContinuationToken || this.loadingMore) return;
+      const videoId = this.videoId;
+      const token = this.nextContinuationToken;
+      const sequence = ++this.relatedRequestSequence;
       this.loadingMore = true;
       try {
-        const data = await apiRequest({
-          // Use raw query formatting required:
-          // video=動画ID==p==token==i==トークン==p==depth==i==2
-          params: {
-            __rawQuery: `video=${this.videoId}==p==token==i==${this.nextContinuationToken}==p==depth==i==2`,
-          },
-          method: "GET",
+        const data = await fetchVideo(videoId, {
+          token,
+          depth: 2,
           retries: 3,
           timeout: 15000,
         });
+        if (sequence !== this.relatedRequestSequence || videoId !== this.videoId) return;
         if (
           data["Related-videos"] &&
           Array.isArray(data["Related-videos"].relatedVideos)
         ) {
-          // Append new related videos
-          this.video["Related-videos"].relatedVideos.push(
-            ...data["Related-videos"].relatedVideos
+          const current = this.video["Related-videos"].relatedVideos;
+          const seen = new Set(
+            current.map((item) => `${item.type || "video"}:${item.videoId}:${item.playlistId || ""}`)
+          );
+          current.push(
+            ...data["Related-videos"].relatedVideos.filter((item) => {
+              const key = `${item.type || "video"}:${item.videoId}:${item.playlistId || ""}`;
+              if (!item.videoId || seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            })
           );
           this.nextContinuationToken =
             data["Related-videos"].nextContinuationToken || null;
         }
       } catch (err) {
+        if (sequence !== this.relatedRequestSequence || videoId !== this.videoId) return;
         console.error("loadMoreRelatedVideos error:", err);
       } finally {
-        this.loadingMore = false;
+        if (sequence === this.relatedRequestSequence) this.loadingMore = false;
       }
     },
     handleClickOutside(event) {
@@ -1205,6 +1254,7 @@ export default {
     videoId: {
       immediate: true,
       handler(newId) {
+        this.showFullDescription = false;
         this.fetchVideoData(newId);
       },
     },
@@ -1446,6 +1496,128 @@ p {
   flex-wrap: wrap;
 }
 
+.main-video-wrapper {
+  overflow: hidden;
+  border-radius: 12px;
+  background: #000;
+}
+
+.watch-loading-state,
+.watch-error-state {
+  align-self: flex-start;
+}
+
+.loading-video-details {
+  padding-top: 18px;
+}
+
+.watch-skeleton {
+  display: block;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  animation: watch-skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.loading-title-line {
+  width: min(72%, 620px);
+  height: 22px;
+}
+
+.loading-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.loading-channel-avatar {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 50%;
+}
+
+.loading-channel-name {
+  width: min(180px, 30%);
+}
+
+.loading-action {
+  width: 92px;
+  height: 36px;
+  margin-left: auto;
+}
+
+.loading-description-line {
+  width: 88%;
+  margin-top: 20px;
+}
+
+.video-error-player {
+  box-sizing: border-box;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 24px;
+  border-radius: 12px;
+  color: #fff;
+  background: #000;
+  text-align: center;
+}
+
+.video-error-player p {
+  max-width: 560px;
+  margin: 0;
+}
+
+.video-error-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 2px solid rgb(255 255 255 / 0.72);
+  border-radius: 50%;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.loading-related {
+  display: grid;
+  gap: 14px;
+}
+
+.loading-related-row {
+  display: flex;
+  gap: 12px;
+}
+
+.loading-related-thumb {
+  width: 168px;
+  height: 94.5px;
+  flex: 0 0 168px;
+  border-radius: 8px;
+}
+
+.loading-related-copy {
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding-top: 5px;
+}
+
+.loading-related-copy .short {
+  width: 68%;
+}
+
+@keyframes watch-skeleton-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
 .main-content {
   flex: 1 1 0;
   min-width: 0;
@@ -1662,6 +1834,18 @@ p {
   .duration-badge {
     font-size: 0.65rem;
     padding: 1px 2px;
+  }
+
+  .loading-related-thumb {
+    width: 140px;
+    height: 78.75px;
+    flex-basis: 140px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .watch-skeleton {
+    animation: none;
   }
 }
 </style>

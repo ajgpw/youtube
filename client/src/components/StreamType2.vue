@@ -12,12 +12,24 @@
         :autoplay="autoplayEnabled"
         :loop="repeatEnabled"
         :key="sources[selectedQuality]?.url"
+        @canplay="markPlayerReady"
+        @playing="markPlayerPlaying"
+        @waiting="markPlayerBuffering"
       >
         <source
           v-for="s in getSingleStreamSources(sources[selectedQuality])"
           :key="s.url"
           :src="s.url"
           :type="s.mimeType || (s.isM3u8 ? 'application/x-mpegURL' : undefined)"
+        />
+        <track
+          v-for="track in subtitleTracks"
+          :key="`${track.srclang}:${track.src}`"
+          :src="track.src"
+          :srclang="track.srclang"
+          :label="track.label"
+          :kind="track.kind"
+          :default="track.default"
         />
       </video>
 
@@ -63,7 +75,15 @@
     <template v-else>
       <template v-if="isAudioOnlyEntry(sources[selectedQuality])">
         <div class="audio-only">
-          <audio ref="audioRef" preload="auto" :autoplay="autoplayEnabled" controls>
+          <audio
+            ref="audioRef"
+            preload="auto"
+            :autoplay="autoplayEnabled"
+            controls
+            @canplay="markPlayerReady"
+            @playing="markPlayerPlaying"
+            @waiting="markPlayerBuffering"
+          >
             <source :src="sources[selectedQuality]?.audio?.url" :type="sources[selectedQuality]?.audio?.mimeType" />
           </audio>
         </div>
@@ -75,6 +95,9 @@
           :autoplay="autoplayEnabled"
           controls
           :key="separateAvKey"
+          @canplay="markPlayerReady"
+          @playing="markPlayerPlaying"
+          @waiting="markPlayerBuffering"
         >
           <source
             v-for="s in getVideoSourcesForEntry(sources[selectedQuality])"
@@ -82,11 +105,29 @@
             :src="s.url"
             :type="s.mimeType"
           />
+          <track
+            v-for="track in subtitleTracks"
+            :key="`${track.srclang}:${track.src}`"
+            :src="track.src"
+            :srclang="track.srclang"
+            :label="track.label"
+            :kind="track.kind"
+            :default="track.default"
+          />
         </video>
         <div v-if="showUnmutePrompt" class="unmute-prompt" @click.stop="handleUnmuteClick">
           ミュートを解除する
         </div>
-        <audio ref="audioRef" preload="auto" style="display:none;" autoplay :key="separateAvKey">
+        <audio
+          ref="audioRef"
+          preload="auto"
+          style="display:none;"
+          autoplay
+          :key="separateAvKey"
+          @canplay="markPlayerReady"
+          @playing="markPlayerPlaying"
+          @waiting="markPlayerBuffering"
+        >
           <source :src="sources[selectedQuality]?.audio?.url" :type="sources[selectedQuality]?.audio?.mimeType" />
         </audio>
       </template>
@@ -124,23 +165,42 @@
       </div>
       <div v-if="isQualitySwitching" class="block-overlay" aria-hidden="true"></div>
     </template>
+    <PlayerLoading
+      v-if="!playerReady || playerBuffering"
+      overlay
+    />
   </div>
-  <div v-else-if="loading" style="height: 50px">読み込み中...</div>
+  <PlayerLoading v-else-if="loading" />
 </template>
 
 <script setup>
 import { ref, watch, onMounted, nextTick, onBeforeUnmount } from "vue";
-import { apiRequest } from "@/services/requestManager";
+import PlayerLoading from "@/components/PlayerLoading.vue";
+import { stream as fetchStream } from "@/services/siatubeApi";
 import { setupSyncPlayback } from "@/components/syncPlayback";
 import { parseStream2Response } from "@/utils/type2StreamParser";
+import {
+  extractSubtitleTracks,
+  normalizeStreamFormats,
+} from "@/utils/siatubeAdapters";
 import { loadPreferredQuality } from "@/utils/settingsManager";
+import { loadHlsConstructor } from "@/utils/hlsLoader";
+import {
+  localizeSubtitleTracks,
+  revokeSubtitleTracks,
+  selectPlaybackSubtitleTracks,
+} from "@/utils/subtitleTracks";
 
 const props = defineProps({
   videoId: { type: String, required: true }
 });
-const emit = defineEmits(["ended", "play-autoplay-candidate"]);
+const emit = defineEmits([
+  "ended",
+  "play-autoplay-candidate",
+  "autoplay-no-suitable-video",
+]);
 function reloadStream() {
-  fetchStreamUrl(props.videoId);
+  fetchStreamUrl(props.videoId, true);
 }
 
 const error = ref("");
@@ -148,6 +208,7 @@ const sources = ref({});
 const selectedQuality = ref("");
 const availableQualities = ref([]);
 const qualityLabels = ref({}); // Map from internal key to display label
+const subtitleTracks = ref([]);
 const selectedPlaybackRate = ref(1.0);
 const playbackRates = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3, 4];
 const diffText = ref("0");
@@ -170,6 +231,8 @@ function saveAutoplaySetting(val) {
 
 const autoplayEnabled = ref(loadAutoplaySetting());
 const loading = ref(false);
+const playerReady = ref(false);
+const playerBuffering = ref(false);
 const isQualitySwitching = ref(false);
 const showUnmutePrompt = ref(false);
 const settingsVisible = ref(true);
@@ -182,6 +245,15 @@ let _loopResumeTimer = null;
 let _loopBufferListenersAttached = false;
 const BUFFER_RESUME_SECONDS = 4;
 let _onEndedAttached = false;
+let streamRequestSequence = 0;
+let hlsInstance = null;
+let HlsConstructor = null;
+
+function destroyHls() {
+  if (!hlsInstance) return;
+  try { hlsInstance.destroy(); } catch (e) {}
+  hlsInstance = null;
+}
 
 const endedHandler = {
   fn: async () => {
@@ -317,6 +389,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  destroyHls();
+  revokeSubtitleTracks(subtitleTracks.value);
   try { cancelAutoplay(); } catch (e) {}
   try { detachBufferListeners(); } catch (e) {}
   try { detachLoopBufferListeners(); } catch (e) {}
@@ -339,7 +413,7 @@ function useM3u8Playback() {
   try {
     if (!hasM3u8.value) return false;
     if (isAppleDevice()) return true;
-    return nativeHlsSupported.value === true;
+    return nativeHlsSupported.value === true || Boolean(HlsConstructor?.isSupported());
   } catch (e) { return false; }
 }
 
@@ -365,8 +439,22 @@ function getSingleStreamSources(entry) {
 function applyVideoSources(videoEl, sourcesList) {
   if (!videoEl) return;
   try {
-    while (videoEl.firstChild) videoEl.removeChild(videoEl.firstChild);
-    for (const s of sourcesList) {
+    destroyHls();
+    videoEl.querySelectorAll(":scope > source").forEach((source) => source.remove());
+    const hlsSource = sourcesList.find((source) => source?.isM3u8 && source.url);
+    const progressiveSources = sourcesList.filter((source) => !source?.isM3u8);
+    const nativeHls = videoEl.canPlayType("application/vnd.apple.mpegurl") ||
+      videoEl.canPlayType("application/x-mpegURL");
+    if (hlsSource && progressiveSources.length === 0 && !nativeHls && HlsConstructor?.isSupported()) {
+      hlsInstance = new HlsConstructor();
+      hlsInstance.loadSource(hlsSource.url);
+      hlsInstance.attachMedia(videoEl);
+      return;
+    }
+    const playableSources = nativeHls || progressiveSources.length === 0
+      ? sourcesList
+      : progressiveSources;
+    for (const s of playableSources) {
       if (!s || !s.url) continue;
       const sourceEl = document.createElement('source');
       sourceEl.src = s.url;
@@ -714,6 +802,7 @@ function checkPlayback() {
 
 // single-stream 切替時の共通セットアップ（再生位置を維持）
 function applyHlsSetup(prevTime = 0) {
+  destroyHls();
   isQualitySwitching.value = true;
   setTimeout(() => { isQualitySwitching.value = false; }, 1000);
 
@@ -730,6 +819,10 @@ function applyHlsSetup(prevTime = 0) {
   } catch (e) {}
 
   nextTick(() => {
+    const entry = sources.value[selectedQuality.value];
+    if (videoRef.value && isSingleStreamEntry(entry)) {
+      applyVideoSources(videoRef.value, getSingleStreamSources(entry));
+    }
     // 再レンダリング後に時間を復元して再生を試みる
     try {
       if (videoRef.value) {
@@ -777,6 +870,8 @@ function applyHlsSetup(prevTime = 0) {
 
 // selectedQuality の監視: 選択先が HLS(url) を持つかどうかで挙動を分ける
 watch(selectedQuality, () => {
+  playerReady.value = false;
+  playerBuffering.value = false;
   const sel = selectedQuality.value;
   const entry = sources.value[sel];
 
@@ -923,7 +1018,9 @@ function applyRepeatAndAutoplay() {
   }
 }
 
-async function fetchStreamUrl(id) {
+async function fetchStreamUrl(id, forceRefresh = false) {
+  const sequence = ++streamRequestSequence;
+  destroyHls();
   error.value = "";
   sources.value = {};
   selectedQuality.value = "";
@@ -931,17 +1028,40 @@ async function fetchStreamUrl(id) {
   diffText.value = "0";
   availableQualities.value = [];
   loading.value = true;
+  playerReady.value = false;
+  playerBuffering.value = false;
   hasM3u8.value = false;
+  revokeSubtitleTracks(subtitleTracks.value);
+  subtitleTracks.value = [];
 
   try {
-    const data = await apiRequest({
-      params: { stream2: id },
+    const data = await fetchStream(id, {
+      forceRefresh,
       retries: 1,
       timeout: 30000,
-      jsonpFallback: false,
     });
+    if (sequence !== streamRequestSequence || id !== props.videoId) return;
 
-    const parsed = parseStream2Response(data);
+    const locale = typeof navigator !== "undefined" ? navigator.language : "ja";
+    const normalizedFormats = normalizeStreamFormats(data, locale);
+    const hasHls = normalizedFormats.some((format) => format.isM3u8);
+    if (hasHls && !nativeHlsSupported.value) {
+      HlsConstructor = await loadHlsConstructor();
+      if (sequence !== streamRequestSequence || id !== props.videoId) return;
+    }
+
+    const parsed = parseStream2Response({ formats: normalizedFormats });
+    const rawSubtitleTracks = selectPlaybackSubtitleTracks(
+      extractSubtitleTracks(data, locale)
+    );
+    localizeSubtitleTracks(rawSubtitleTracks).then((localizedTracks) => {
+      if (sequence !== streamRequestSequence || id !== props.videoId) {
+        revokeSubtitleTracks(localizedTracks);
+        return;
+      }
+      revokeSubtitleTracks(subtitleTracks.value);
+      subtitleTracks.value = localizedTracks;
+    });
     if (!parsed || Object.keys(parsed.sources || {}).length === 0) {
       error.value = "利用可能なストリームがありません。";
       loading.value = false;
@@ -967,6 +1087,7 @@ async function fetchStreamUrl(id) {
 
     // DOM 更新後のセットアップ
     nextTick().then(() => {
+      if (sequence !== streamRequestSequence || id !== props.videoId) return;
       // decide actual playback mode for the selected quality:
       const sel = selectedQuality.value;
       const selEntry = sources.value[sel];
@@ -1074,6 +1195,7 @@ async function fetchStreamUrl(id) {
     } catch (e) {}
 
   } catch (err) {
+    if (sequence !== streamRequestSequence || id !== props.videoId) return;
     loading.value = false;
     if (err && err.name === 'AbortError') {
       error.value = "ストリームURLの取得に失敗しました (タイムアウト)";
@@ -1084,8 +1206,22 @@ async function fetchStreamUrl(id) {
     availableQualities.value = [];
     selectedQuality.value = "";
   } finally {
-    loading.value = false;
+    if (sequence === streamRequestSequence) loading.value = false;
   }
+}
+
+function markPlayerReady() {
+  playerReady.value = true;
+  playerBuffering.value = false;
+}
+
+function markPlayerPlaying() {
+  playerReady.value = true;
+  playerBuffering.value = false;
+}
+
+function markPlayerBuffering() {
+  if (playerReady.value) playerBuffering.value = true;
 }
 
 watch(

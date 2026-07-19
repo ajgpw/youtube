@@ -2,19 +2,17 @@
  * 検索機能の管理ロジック
  */
 
+import { suggest } from "@/services/siatubeApi";
+
 /**
- * Google Suggestから検索候補を取得
+ * SiaTube API から検索候補を取得
  */
 export async function fetchSearchSuggestions(keyword, signal) {
   if (!keyword) return [];
 
   try {
-    const url = `https://www.google.com/complete/search?client=youtube&hl=ja&ds=yt&q=${encodeURIComponent(keyword)}`;
-    const res = await fetch(url, { signal });
-
-    if (!res.ok) throw new Error('Network error');
-    const data = await res.json();
-    return data || [];
+    const data = await suggest(keyword, { signal });
+    return Array.isArray(data) ? data.filter((item) => typeof item === "string") : [];
   } catch (e) {
     if (e.name !== 'AbortError') {
       console.error('fetchSearchSuggestions error', e);

@@ -33,7 +33,7 @@
       >
         <router-link
           :to="displayType !== 'channel'
-            ? `/watch?v=${item.videoId}&list=${playlist.playlistId}`
+            ? `/watch?v=${item.videoId}&list=${playbackPlaylistId}`
             : `/watch?v=${item.videoId}`"
           class="video-link"
         >
@@ -100,6 +100,11 @@
           </div>
         </router-link>
       </div>
+      <div v-if="nextToken" class="playlist-more">
+        <button type="button" class="load-more-btn" :disabled="loadingMore" @click="loadMore">
+          {{ loadingMore ? "さらに読み込み中…" : "動画をさらに表示" }}
+        </button>
+      </div>
     </div>
   </section>
 
@@ -109,9 +114,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, computed } from "vue";
+import { ref, nextTick, computed, watch } from "vue";
 import { useRoute } from "vue-router";
-import { apiRequest } from "@/services/requestManager";
+import { playlist as fetchPlaylist } from "@/services/siatubeApi";
+import { getPlaylistById } from "@/utils/playlistManager";
+import { normalizePlaylist } from "@/utils/siatubeAdapters";
 
 const props = defineProps({
   playlistId: String,
@@ -126,12 +133,18 @@ const route = useRoute();
 
 const playlist = ref(null);
 const loading = ref(false);
+const loadingMore = ref(false);
 const error = ref(false);
 const scrollContainer = ref(null);
+const nextToken = ref(null);
+let requestSequence = 0;
 
 const playlistId = computed(() => props.playlistId || route.query.list || "");
 const playVideoId = computed(() => props.playVideoId || route.query.play || route.query.v || "");
 const displayType = computed(() => props.displayType || route.query.type || "default");
+const playbackPlaylistId = computed(
+  () => playlist.value?.requestedPlaylistId || playlistId.value
+);
 
 function isNumericOnly(value) {
   if (value === null || value === undefined) return false;
@@ -140,58 +153,121 @@ function isNumericOnly(value) {
   return /^[0-9]+$/.test(value);
 }
 
-onMounted(async () => {
+function arrayBufferToBase64(arrayBuffer, mimeType = "image/jpeg") {
+  if (!arrayBuffer) return null;
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+  return `data:${mimeType};base64,${btoa(binary)}`;
+}
+
+async function localPlaylistData(id) {
+  const localId = id.slice("local-".length);
+  if (!/^\d+$/.test(localId)) throw new Error("Invalid local playlist ID");
+  const custom = await getPlaylistById(Number(localId));
+  if (!custom) throw new Error("プレイリストが見つかりません");
+  return {
+    title: custom.name,
+    playlistId: id,
+    requestedPlaylistId: id,
+    totalItems: custom.items.length,
+    items: custom.items.map((item) => ({
+      videoId: item.id,
+      title: item.title,
+      author: item.authorName,
+      thumbnail: item.thumbnailBinary ? arrayBufferToBase64(item.thumbnailBinary) : null,
+      duration: null,
+      views: item.views || null,
+      published: item.published || null,
+    })),
+    nextToken: null,
+    isCustom: true,
+  };
+}
+
+async function scrollToCurrentVideo() {
+  await nextTick();
+  if (playVideoId.value && scrollContainer.value) {
+    const target = scrollContainer.value.querySelector(
+      `.playlist-item[data-video-id="${playVideoId.value}"]`
+    );
+    if (target) {
+      scrollContainer.value.scrollTo({
+        top:
+          target.offsetTop -
+          scrollContainer.value.clientHeight / 2 +
+          target.clientHeight / 2,
+        behavior: "smooth",
+      });
+    }
+  }
+}
+
+async function loadPlaylist({ append = false } = {}) {
   if (!playlistId.value) {
     console.error("playlistId が指定されていません");
     error.value = true;
     return;
   }
 
-  loading.value = true;
+  const sequence = append ? requestSequence : ++requestSequence;
+  if (append) loadingMore.value = true;
+  else {
+    loadingMore.value = false;
+    loading.value = true;
+    playlist.value = null;
+    nextToken.value = null;
+  }
+  error.value = false;
 
   try {
-    // If this is a local playlist (stored in localStorage), call apiRequest with
-    // `params.playlist` so requestManager's local-playlist shortcut runs.
     let data;
     if (playlistId.value && playlistId.value.startsWith("local-")) {
-      data = await apiRequest({
-        params: { playlist: playlistId.value },
-        retries: 1,
-        timeout: 30000,
-      });
+      data = await localPlaylistData(playlistId.value);
     } else {
-      const raw = route.query.v ? `playlist=${playlistId.value}==p==v==i==${route.query.v}` : `playlist=${playlistId.value}`;
-      data = await apiRequest({
-        params: { __rawQuery: raw },
+      data = await fetchPlaylist(playlistId.value, {
+        token: append ? nextToken.value : undefined,
+        v: route.query.v || undefined,
         retries: 1,
         timeout: 30000,
-        jsonpFallback: true,
       });
     }
+    if (sequence !== requestSequence) return;
 
-    playlist.value = data;
-
-    await nextTick();
-    if (playVideoId.value && scrollContainer.value) {
-      const target = scrollContainer.value.querySelector(
-        `.playlist-item[data-video-id="${playVideoId.value}"]`
+    const normalized = normalizePlaylist(data, playlistId.value);
+    if (append && playlist.value) {
+      const seen = new Set(playlist.value.items.map((item) => item.videoId));
+      playlist.value.items.push(
+        ...normalized.items.filter((item) => !seen.has(item.videoId))
       );
-      if (target) {
-        scrollContainer.value.scrollTo({
-          top:
-            target.offsetTop -
-            scrollContainer.value.clientHeight / 2 +
-            target.clientHeight / 2,
-          behavior: "smooth",
-        });
-      }
+      playlist.value.responseItems = String(playlist.value.items.length);
+      playlist.value.nextToken = normalized.nextToken;
+    } else {
+      playlist.value = normalized;
     }
+    nextToken.value = normalized?.nextToken || null;
+    if (!append) await scrollToCurrentVideo();
   } catch (err) {
+    if (sequence !== requestSequence) return;
     console.error("プレイリスト取得失敗:", err);
-    error.value = true;
+    if (!append) error.value = true;
   } finally {
-    loading.value = false;
+    if (sequence === requestSequence) {
+      loading.value = false;
+      loadingMore.value = false;
+    }
   }
+}
+
+function loadMore() {
+  if (!nextToken.value || loadingMore.value) return;
+  loadPlaylist({ append: true });
+}
+
+watch(playlistId, () => loadPlaylist(), { immediate: true });
+
+watch(playVideoId, (newVideoId, oldVideoId) => {
+  if (newVideoId && newVideoId !== oldVideoId) scrollToCurrentVideo();
 });
 
 function getPrimaryThumbnail(id) {
@@ -219,6 +295,35 @@ function onImageError(event, id) {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.playlist-more {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 4px;
+}
+
+.scroll-default .playlist-more,
+.scroll-channel .playlist-more {
+  grid-column: 1 / -1;
+}
+
+.scroll-watch .playlist-more {
+  flex: 0 0 auto;
+}
+
+.load-more-btn {
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  padding: 8px 16px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+
+.load-more-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .type-watch {
@@ -252,6 +357,7 @@ function onImageError(event, id) {
 }
 
 .scroll-watch {
+  padding-top: 3em;
   display: flex;
   flex-direction: column;
   overflow-y: auto;

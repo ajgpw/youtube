@@ -1,4 +1,3 @@
-//これ要らんくね？
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import path from "path";
@@ -13,11 +12,5 @@ export default defineConfig({
   base: "./", 
   server: {
     allowedHosts: ["tpj4gl-5173.csb.app"],
-    proxy: {
-      "/api": {
-        target: "http://localhost:5000",
-        changeOrigin: true,
-      },
-    },
   },
 });

@@ -32,13 +32,15 @@
         表示回数
         <img src="https://count.getloli.com/@:siatube?name=%3Asiatube&theme=minecraft&padding=7&offset=0&align=top&scale=1&pixelated=1&darkmode=auto" style="width: 50%; max-width: 380px;">
       </div>
-      <div style="color: var(--text-secondary);">バージョン1.5.4</div>
+      <div style="color: var(--text-secondary);">バージョン2.0.0</div>
     </footer>
   </div>
 </template>
 
 <script>
 import VideoList from "@/components/VideoList.vue";
+import { search as searchSiaTube } from "@/services/siatubeApi";
+import { normalizeSearchItems } from "@/utils/siatubeAdapters";
 
 export default {
   components: { VideoList },
@@ -79,12 +81,23 @@ export default {
       this.loading = true;
       this.error = null;
       try {
-        const res = await fetch("https://raw.githubusercontent.com/ajgpw/youtubedata/refs/heads/main/trend-base64.json", {redirect: "follow",});
-        if (!res.ok) throw new Error("データ取得失敗");
-        const data = await res.json();
-        this.trend = data;
+        const queries = {
+          trending: "急上昇",
+          gaming: "ゲーム",
+          music: "音楽",
+        };
+        const entries = await Promise.all(
+          Object.entries(queries).map(async ([key, query]) => {
+            const data = await searchSiaTube(query, { retries: 1, timeout: 15000 });
+            const videos = normalizeSearchItems(data?.items)
+              .filter((item) => item.type === "video")
+              .slice(0, 30);
+            return [key, videos];
+          })
+        );
+        this.trend = Object.fromEntries(entries);
       } catch (e) {
-        this.error = e.message;
+        this.error = e?.message || "データ取得失敗";
       } finally {
         this.loading = false;
       }

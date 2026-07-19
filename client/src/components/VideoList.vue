@@ -2,10 +2,10 @@
   <section>
     <h2 style="margin-inline-start: 7px; color: var(--text-primary);">{{ title }}</h2>
     <ul class="video-list">
-      <li v-for="video in videos" :key="video.id" class="video-item">
+      <li v-for="video in videos" :key="`${video.type}:${video.id}:${video.playlistId || ''}`" class="video-item">
         <!-- 動画 -->
         <template v-if="video.type !== 'channel'">
-          <router-link :to="`/watch?v=${video.id}`" class="thumbnail-link">
+          <router-link :to="videoRoute(video)" class="thumbnail-link">
             <div
               class="thumbnail-wrapper"
               :data-duration="formatDuration(video.duration)"
@@ -22,7 +22,7 @@
           <div class="info">
             <h3>
               <router-link
-                :to="`/watch?v=${video.id}`"
+                :to="videoRoute(video)"
                 class="title-link"
               >
                 {{ video.title }}
@@ -105,6 +105,13 @@ export default {
     formatPublishedAt,
     formatViewCount,
     getPrimaryThumbnail,
+    videoRoute(video) {
+      const query = { v: video.id };
+      if (video.type === "playlist" && video.playlistId) {
+        query.list = video.playlistId;
+      }
+      return { path: "/watch", query };
+    },
     onImageError(event, id) {
       if (!event.target.dataset.error) {
         event.target.src = getPrimaryThumbnail(id);
