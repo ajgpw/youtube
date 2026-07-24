@@ -1,4 +1,6 @@
 const SIATUBE_API_ORIGIN = "https://siatube.com";
+const VERSION_SOURCE_URL =
+  "https://raw.githubusercontent.com/ajgpw/youtube/refs/heads/main/client/version.txt";
 
 function isApiPath(pathname) {
   return pathname === "/api" || pathname.startsWith("/api/");
@@ -43,6 +45,19 @@ async function proxyApi(request, sourceUrl) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === "/api/version-check" && request.method === "GET") {
+      const response = await fetch(VERSION_SOURCE_URL, {
+        headers: { Accept: "text/plain" },
+        cf: { cacheTtl: 300, cacheEverything: true },
+      });
+      return new Response(response.body, {
+        status: response.status,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+          "cache-control": "public, max-age=300",
+        },
+      });
+    }
     if (url.pathname === "/api/bridge" && request.method === "POST") {
       let pathAndQuery = "";
       try {

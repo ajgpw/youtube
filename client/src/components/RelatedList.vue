@@ -5,6 +5,7 @@
       displayType="watch"
       :playlistId="playlistId"
       :playVideoId="currentVideoId"
+      @next-video="$emit('playlist-next-video', $event)"
     />
     <template v-if="relatedVideos.length">
       <h3 class="related-title">関連動画</h3>

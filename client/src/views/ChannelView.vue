@@ -204,6 +204,7 @@
                   :key="itemKey(item, itemIndex)"
                   :item="item"
                   :layout="sectionCardLayout(section)"
+                  :playback-playlist-id="section.playlistId || ''"
                 />
               </div>
 

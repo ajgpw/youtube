@@ -128,6 +128,7 @@ const props = defineProps({
     default: "default",
   },
 });
+const emit = defineEmits(["next-video"]);
 
 const route = useRoute();
 
@@ -151,6 +152,17 @@ function isNumericOnly(value) {
   if (typeof value === "number") return true;
   if (typeof value !== "string") return false;
   return /^[0-9]+$/.test(value);
+}
+
+function emitNextVideo() {
+  const items = playlist.value?.items || [];
+  const currentIndex = items.findIndex(
+    (item) => item.videoId === playVideoId.value
+  );
+  emit(
+    "next-video",
+    currentIndex >= 0 ? items[currentIndex + 1]?.videoId || "" : ""
+  );
 }
 
 function arrayBufferToBase64(arrayBuffer, mimeType = "image/jpeg") {
@@ -246,6 +258,7 @@ async function loadPlaylist({ append = false } = {}) {
       playlist.value = normalized;
     }
     nextToken.value = normalized?.nextToken || null;
+    emitNextVideo();
     if (!append) await scrollToCurrentVideo();
   } catch (err) {
     if (sequence !== requestSequence) return;
@@ -271,7 +284,10 @@ function loadMore() {
 watch(playlistId, () => loadPlaylist(), { immediate: true });
 
 watch(playVideoId, (newVideoId, oldVideoId) => {
-  if (newVideoId && newVideoId !== oldVideoId) scrollToCurrentVideo();
+  if (newVideoId && newVideoId !== oldVideoId) {
+    emitNextVideo();
+    scrollToCurrentVideo();
+  }
 });
 
 function getPrimaryThumbnail(id) {

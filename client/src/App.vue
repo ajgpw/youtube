@@ -7,6 +7,17 @@
     />
     <Sidebar :open="sidebarOpen" :is-watch-page="route.path === '/watch'" />
     <main class="app-content" :class="{ 'sidebar-closed': !sidebarOpen }">
+      <div v-if="updateAvailable" class="version-warning" role="alert">
+        <div>
+          <strong>新しいバージョンがあります</strong>
+          <p>現在: {{ currentVersion }} ／ 最新: {{ latestVersion }}</p>
+        </div>
+        <button
+          type="button"
+          aria-label="更新のお知らせを閉じる"
+          @click="updateAvailable = false"
+        >✕</button>
+      </div>
       <div
         v-if="connectionFailurePrompt"
         class="proxy-connection-prompt"
@@ -43,6 +54,7 @@ import { ref, computed, provide, watch, onBeforeUnmount } from 'vue';
 import { loadDisplayMode, computeIsDarkFromMode } from '@/utils/settingsManager';
 import { useRoute } from 'vue-router';
 import { API_CONNECTION_FAILURE_EVENT } from '@/services/siatubeApi';
+import { checkForUpdate } from '@/utils/versionCheck';
 
 export default {
   name: 'App',
@@ -59,6 +71,9 @@ export default {
     const sidebarOpen = ref(window.innerWidth >= 1315);
     const settingsModalOpen = ref(false);
     const connectionFailurePrompt = ref(false);
+    const updateAvailable = ref(false);
+    const currentVersion = ref("");
+    const latestVersion = ref("");
 
     // Always initialize settingsModalOpen to false on page load
     console.log('[App.vue] Initialized settingsModalOpen to false on page load');
@@ -91,6 +106,11 @@ export default {
     };
 
     window.addEventListener(API_CONNECTION_FAILURE_EVENT, handleApiConnectionFailure);
+    checkForUpdate().then((result) => {
+      currentVersion.value = result.currentVersion;
+      latestVersion.value = result.latestVersion;
+      updateAvailable.value = result.updateAvailable;
+    }).catch(() => {});
 
     // Persist modal state to localStorage whenever it changes
     watch(settingsModalOpen, (newVal) => {
@@ -166,6 +186,9 @@ export default {
       settingsModalOpen,
       connectionFailurePrompt,
       openProxySettings,
+      updateAvailable,
+      currentVersion,
+      latestVersion,
     };
   },
   methods: {
@@ -206,6 +229,38 @@ export default {
 </script>
 
 <style>
+.version-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 12px;
+  padding: 12px 16px;
+  border: 1px solid #eab308;
+  border-radius: 8px;
+  color: #713f12;
+  background: #fef9c3;
+}
+
+.version-warning p {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+}
+
+.version-warning button {
+  border: 0;
+  padding: 6px 9px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+html.dark-mode .version-warning {
+  color: #fef08a;
+  background: #422006;
+}
+
 #app {
   padding-top: 52px;
   box-sizing: border-box;

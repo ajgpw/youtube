@@ -175,6 +175,10 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  playbackPlaylistId: {
+    type: String,
+    default: "",
+  },
   layout: {
     type: String,
     default: "shelf",
@@ -200,7 +204,12 @@ const internalPath = computed(() => {
   if (isPlaylist.value && props.item.playlistId) {
     return `/playlist?list=${encodeURIComponent(props.item.playlistId)}`;
   }
-  if (props.item.videoId) return `/watch?v=${encodeURIComponent(props.item.videoId)}`;
+  if (props.item.videoId) {
+    const videoPath = `/watch?v=${encodeURIComponent(props.item.videoId)}`;
+    return props.playbackPlaylistId
+      ? `${videoPath}&list=${encodeURIComponent(props.playbackPlaylistId)}`
+      : videoPath;
+  }
   return "";
 });
 

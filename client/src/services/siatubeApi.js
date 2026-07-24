@@ -585,8 +585,9 @@ export function stream(videoId, options = {}) {
   }
   if (options.signal?.aborted) return Promise.reject(abortError(options.signal));
 
-  const ps = options.ps === undefined ? "" : requireString(options.ps, "ps");
-  const cacheKey = `${id}\u0000${ps}`;
+  const origin =
+    options.origin === undefined ? "" : requireString(options.origin, "origin");
+  const cacheKey = `${id}\u0000${origin}`;
 
   const now = Date.now();
   pruneStreamCache(now);
@@ -600,7 +601,7 @@ export function stream(videoId, options = {}) {
   if (!pending) {
     pending = getJson(`/api/stream/${pathSegment(id, "videoId")}`, {
       ...requestOptions({ ...options, signal: undefined }),
-      query: { ps: ps || undefined },
+      query: { origin: origin || undefined },
     })
       .then((data) => {
         streamCache.set(cacheKey, { createdAt: Date.now(), data });

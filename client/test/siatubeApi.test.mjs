@@ -75,7 +75,7 @@ test("same-video stream requests share one in-flight API call and cache", async 
   assert.deepEqual(second, third);
 });
 
-test("stream appends the requested ps query parameter", async (t) => {
+test("stream appends the requested origin query parameter", async (t) => {
   clearStreamCache();
   const originalFetch = globalThis.fetch;
   let requestedUrl = "";
@@ -88,11 +88,11 @@ test("stream appends the requested ps query parameter", async (t) => {
     globalThis.fetch = originalFetch;
   });
 
-  await stream("dQw4w9WgXcQ", { ps: "siatube" });
+  await stream("dQw4w9WgXcQ", { origin: "siatube" });
 
   const url = new URL(requestedUrl);
   assert.equal(url.pathname, "/api/stream/dQw4w9WgXcQ");
-  assert.equal(url.search, "?ps=siatube");
+  assert.equal(url.search, "?origin=siatube");
 });
 
 test("Apps Script deployments call SiaTube directly", async (t) => {

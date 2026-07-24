@@ -488,6 +488,7 @@
       :currentVideoId="videoId"
       :loadingMore="loadingMore"
       @load-more="loadMoreRelatedVideos"
+      @playlist-next-video="onPlaylistNextVideo"
     />
     <div v-else-if="error && video" class="error-msg">
       ⚠️ {{ error }}<br />
@@ -595,6 +596,7 @@ export default {
       showCollaboratorsPopup: false,
       videoRequestSequence: 0,
       relatedRequestSequence: 0,
+      nextPlaylistVideoId: "",
     };
   },
   computed: {
@@ -942,6 +944,19 @@ export default {
             }
 
             this._autoplayTimer = setTimeout(() => {
+              const activePlaylistId = this.$route.query.list;
+              if (activePlaylistId) {
+                if (!this.nextPlaylistVideoId) return;
+                this.$router.push({
+                  path: "/watch",
+                  query: {
+                    v: this.nextPlaylistVideoId,
+                    list: activePlaylistId,
+                    autoplay: "1",
+                  },
+                });
+                return;
+              }
               const next =
                 this.relatedVideos && this.relatedVideos.length
                   ? this.relatedVideos[0]
@@ -966,10 +981,16 @@ export default {
 
     onPlayAutoplayCandidate({ id }) {
       try {
-        if (!id) return;
+        const activePlaylistId = this.$route.query.list;
+        if (activePlaylistId && !this.nextPlaylistVideoId) return;
+        const targetId =
+          activePlaylistId
+            ? this.nextPlaylistVideoId
+            : id;
+        if (!targetId) return;
         // 自動遷移中の競合を防ぐためロックを設定（短時間）
         try {
-          const lock = { target: id, expires: Date.now() + 5000 };
+          const lock = { target: targetId, expires: Date.now() + 5000 };
           sessionStorage.setItem("yt_autoplay_lock", JSON.stringify(lock));
         } catch (e) {}
 
@@ -987,11 +1008,18 @@ export default {
           }
         } catch (e) {}
 
-        const query = { v: id };
+        const query = { v: targetId };
+        if (activePlaylistId) {
+          query.list = activePlaylistId;
+        }
         this.$router.push({ path: "/watch", query });
       } catch (e) {
         console.error("onPlayAutoplayCandidate error", e);
       }
+    },
+
+    onPlaylistNextVideo(videoId) {
+      this.nextPlaylistVideoId = videoId || "";
     },
 
     onAutoplayNoSuitableVideo() {
