@@ -1,5 +1,5 @@
 <template>
-  <div v-if="error" class="error-box">
+  <div v-if="error" class="error-box" role="alert" aria-live="polite">
     ⚠️ {{ error }}
     <button @click="reloadStream" class="reload-button">再取得</button>
   </div>
@@ -170,15 +170,33 @@
       overlay
     />
   </div>
-  <PlayerLoading v-else-if="loading" />
+  <PlayerLoading v-else-if="loading">
+    <div class="stream-status-panel">
+      <div class="stream-status-title">{{ streamStatusTitle }}</div>
+      <div v-if="streamStatusDetail" class="stream-status-detail">
+        {{ streamStatusDetail }}
+      </div>
+      <div v-if="estimatedWaitText" class="stream-status-wait">
+        おおよその待ち時間: {{ estimatedWaitText }}
+      </div>
+    </div>
+  </PlayerLoading>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, nextTick, onBeforeUnmount } from "vue";
+import { computed, ref, watch, onMounted, nextTick, onBeforeUnmount } from "vue";
 import PlayerLoading from "@/components/PlayerLoading.vue";
-import { stream as fetchStream } from "@/services/siatubeApi";
+import {
+  isVideoStreamError,
+  stream as fetchStream,
+  streamStatus as fetchStreamStatus,
+} from "@/services/siatubeApi";
 import { setupSyncPlayback } from "@/components/syncPlayback";
 import { parseStream2Response } from "@/utils/type2StreamParser";
+import {
+  estimateStreamWaitMs,
+  normalizeStreamStatus,
+} from "@/utils/streamStatus";
 import {
   extractSubtitleTracks,
   normalizeStreamFormats,
@@ -231,6 +249,57 @@ function saveAutoplaySetting(val) {
 
 const autoplayEnabled = ref(loadAutoplaySetting());
 const loading = ref(false);
+const streamServerStatus = ref(null);
+const streamStatusError = ref(false);
+const streamStatusFetchedAt = ref(0);
+const statusClock = ref(Date.now());
+const STREAM_STATUS_INTERVAL_MS = 60_000;
+let streamStatusTimer = null;
+let statusClockTimer = null;
+
+const streamStatusTitle = computed(() => {
+  if (!streamServerStatus.value && !streamStatusError.value) {
+    return "サーバー状況を確認しています…";
+  }
+  if (streamStatusError.value && !streamServerStatus.value) {
+    return "サーバー状況を取得できませんでした";
+  }
+  const count = streamServerStatus.value?.processing?.count || 0;
+  return count === 0
+    ? "サーバーは空いています"
+    : `サーバーで${count}件を処理中です`;
+});
+
+const streamStatusDetail = computed(() => {
+  const ids = streamServerStatus.value?.processing?.ids || [];
+  const ownIndex = ids.indexOf(props.videoId);
+  if (ownIndex < 0) return "";
+  return `この動画を処理中です（${ownIndex + 1}番目）`;
+});
+
+const estimatedWaitText = computed(() => {
+  if (!streamServerStatus.value) return "";
+  const elapsed = Math.max(0, statusClock.value - streamStatusFetchedAt.value);
+  const waitMs = estimateStreamWaitMs(
+    streamServerStatus.value,
+    props.videoId,
+    elapsed,
+  );
+  if (waitMs <= 0) return "まもなく完了予定";
+  return `約${Math.max(1, Math.ceil(waitMs / 1000))}秒`;
+});
+
+async function updateStreamServerStatus() {
+  try {
+    const data = await fetchStreamStatus({ retries: 0, timeout: 10_000 });
+    streamServerStatus.value = normalizeStreamStatus(data);
+    streamStatusFetchedAt.value = Date.now();
+    statusClock.value = streamStatusFetchedAt.value;
+    streamStatusError.value = false;
+  } catch {
+    streamStatusError.value = true;
+  }
+}
 const playerReady = ref(false);
 const playerBuffering = ref(false);
 const isQualitySwitching = ref(false);
@@ -357,6 +426,15 @@ const nativeHlsSupported = ref(false);
 const hasM3u8 = ref(false);
 
 onMounted(() => {
+  void updateStreamServerStatus();
+  streamStatusTimer = window.setInterval(
+    updateStreamServerStatus,
+    STREAM_STATUS_INTERVAL_MS,
+  );
+  statusClockTimer = window.setInterval(() => {
+    statusClock.value = Date.now();
+  }, 1_000);
+
   // ブラウザがネイティブに m3u8 を扱えるか判定
   try {
     const tv = document.createElement('video');
@@ -389,6 +467,10 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  if (streamStatusTimer !== null) window.clearInterval(streamStatusTimer);
+  if (statusClockTimer !== null) window.clearInterval(statusClockTimer);
+  streamStatusTimer = null;
+  statusClockTimer = null;
   destroyHls();
   revokeSubtitleTracks(subtitleTracks.value);
   try { cancelAutoplay(); } catch (e) {}
@@ -1198,7 +1280,9 @@ async function fetchStreamUrl(id, forceRefresh = false) {
   } catch (err) {
     if (sequence !== streamRequestSequence || id !== props.videoId) return;
     loading.value = false;
-    if (err?.connectionFailure) {
+    if (isVideoStreamError(err)) {
+      error.value = err.payload?.message || err.message;
+    } else if (err?.connectionFailure) {
       error.value = err.message;
     } else if (err && err.name === 'AbortError') {
       error.value = "ストリームURLの取得に失敗しました (タイムアウト)";
@@ -1263,6 +1347,62 @@ watch(videoRef, (newEl, oldEl) => {
 </script>
 
 <style scoped>
+.error-box {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 140px;
+  padding: 24px 28px;
+  border: 2px solid #d9534f;
+  border-radius: 12px;
+  background: #fff1f0;
+  color: #8b1a1a;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.7;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 14px;
+}
+
+.error-box .reload-button {
+  width: auto;
+  min-width: 120px;
+  margin-top: 0;
+  padding: 9px 20px;
+  font-size: 14px;
+}
+
+.stream-status-panel {
+  min-width: min(420px, calc(100vw - 48px));
+  padding: 16px 20px;
+  border: 1px solid rgb(255 255 255 / 0.35);
+  border-radius: 10px;
+  background: rgb(0 0 0 / 0.72);
+  color: #fff;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.stream-status-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.stream-status-detail {
+  margin-top: 4px;
+  color: #b9ddff;
+  font-size: 14px;
+}
+
+.stream-status-wait {
+  margin-top: 6px;
+  color: #ffe08a;
+  font-size: 15px;
+  font-weight: 700;
+}
+
 .video-container {
   position: relative;
   aspect-ratio: 16 / 9;

@@ -6,7 +6,10 @@
     aria-live="polite"
     aria-label="動画を読み込んでいます"
   >
-    <span class="player-loading-spinner" aria-hidden="true"></span>
+    <div class="player-loading-content">
+      <span class="player-loading-spinner" aria-hidden="true"></span>
+      <slot></slot>
+    </div>
     <span class="visually-hidden">動画を読み込んでいます</span>
   </div>
 </template>
@@ -33,6 +36,13 @@ defineProps({
   inset: 0;
   z-index: 25;
   aspect-ratio: auto;
+}
+
+.player-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
 }
 
 .player-loading-spinner {

@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import {
   clearStreamCache,
   comments,
+  isVideoStreamError,
   playlist,
   search,
   stream,
+  streamStatus,
   suggest,
   video,
 } from "../src/services/siatubeApi.js";
@@ -93,6 +95,79 @@ test("stream appends the requested origin query parameter", async (t) => {
   const url = new URL(requestedUrl);
   assert.equal(url.pathname, "/api/stream/dQw4w9WgXcQ");
   assert.equal(url.search, "?origin=siatube");
+});
+
+test("streamStatus uses the status endpoint and disables caching", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let request = null;
+  globalThis.fetch = async (url, options) => {
+    request = { url: String(url), options };
+    return jsonResponse({
+      status: "ok",
+      processing: { count: 0, ids: [], longest: null },
+    });
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await streamStatus({ retries: 0 });
+
+  assert.equal(new URL(request.url).pathname, "/api/stream/status");
+  assert.equal(request.options.cache, "no-store");
+  assert.equal(request.options.headers["Cache-Control"], undefined);
+});
+
+test("stream exposes documented video errors by code without retrying", async (t) => {
+  clearStreamCache();
+  const originalFetch = globalThis.fetch;
+  const payload = {
+    error: "Video Deleted",
+    message: "この動画は削除されているため取得できません。",
+    detail: "この動画は削除されているため取得できません。",
+    code: "deleted",
+    videoId: "dQw4w9WgXcQ",
+    cachedFailure: false,
+    skippedYtDlp: false,
+    recordedAt: "2026-07-27T12:34:56.789Z",
+  };
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return jsonResponse(payload, { status: 410 });
+  };
+  t.after(() => {
+    clearStreamCache();
+    globalThis.fetch = originalFetch;
+  });
+
+  await assert.rejects(
+    () => stream("dQw4w9WgXcQ", { retries: 1 }),
+    (error) => {
+      assert.equal(error.code, "deleted");
+      assert.equal(error.status, 410);
+      assert.equal(error.message, payload.message);
+      assert.deepEqual(error.payload, payload);
+      assert.equal(error.retryable, false);
+      assert.equal(isVideoStreamError(error), true);
+      return true;
+    },
+  );
+
+  assert.equal(calls, 1);
+});
+
+test("video stream error detection only accepts documented fixed codes", () => {
+  for (const code of [
+    "members_only",
+    "private",
+    "deleted",
+    "copyright_removed",
+    "account_terminated",
+    "unavailable",
+  ]) {
+    assert.equal(isVideoStreamError({ code }), true);
+  }
+  assert.equal(isVideoStreamError({ code: "Video Deleted" }), false);
+  assert.equal(isVideoStreamError({ code: "HTTP_ERROR" }), false);
 });
 
 test("Apps Script deployments call SiaTube directly", async (t) => {

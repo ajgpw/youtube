@@ -17,6 +17,14 @@ const RETRY_DELAY_MS = 250;
 const RATE_LIMIT_RETRY_DELAY_MS = 2_100;
 const STREAM_CACHE_TTL_MS = 5 * 60 * 1_000;
 export const API_CONNECTION_FAILURE_EVENT = "siatube-api-connection-failure";
+export const VIDEO_STREAM_ERROR_CODES = new Set([
+  "members_only",
+  "private",
+  "deleted",
+  "copyright_removed",
+  "account_terminated",
+  "unavailable",
+]);
 const API_HEALTH_URL = `${SIATUBE_API_ORIGIN}/health`;
 const API_HEALTH_TIMEOUT_MS = 10_000;
 
@@ -110,7 +118,7 @@ function booleanQuery(value) {
 
 function requestOptions(options = {}) {
   const result = {};
-  for (const key of ["timeout", "retries", "signal", "headers"]) {
+  for (const key of ["timeout", "retries", "signal", "headers", "cache"]) {
     if (options[key] !== undefined) result[key] = options[key];
   }
   return result;
@@ -192,10 +200,17 @@ function errorMessage(payload, fallback) {
 }
 
 function errorCode(payload, fallback) {
+  if (payload && typeof payload.code === "string" && payload.code.trim()) {
+    return payload.code;
+  }
   if (payload && typeof payload.error === "string" && payload.error.trim()) {
     return payload.error;
   }
   return fallback;
+}
+
+export function isVideoStreamError(error) {
+  return VIDEO_STREAM_ERROR_CODES.has(error?.code);
 }
 
 async function readJson(response, url) {
@@ -358,6 +373,7 @@ export async function getJson(path, options = {}) {
     query = {},
     signal,
     headers = {},
+    cache,
   } = options;
   let timeout = normalizeTimeout(options.timeout);
   try {
@@ -398,6 +414,7 @@ export async function getJson(path, options = {}) {
         },
         credentials: "omit",
         redirect: "follow",
+        ...(cache ? { cache } : {}),
         signal: controller.signal,
       }, proxyUrl, proxyTransport);
       const payload = await readJson(response, url);
@@ -614,6 +631,13 @@ export function stream(videoId, options = {}) {
   }
 
   return withSignal(pending, options.signal);
+}
+
+export function streamStatus(options = {}) {
+  return getJson("/api/stream/status", {
+    ...requestOptions(options),
+    cache: "no-store",
+  });
 }
 
 export function clearStreamCache(videoId) {
