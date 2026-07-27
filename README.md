@@ -72,7 +72,7 @@ function siatubeApiGet(pathAndQuery) {
 <ul style="list-style: none; padding: 0;">
   <li>
     <img src="https://www.google.com/a/cpanel/images/favicon.ico" alt="メール" width="16" height="16" style="vertical-align: middle; margin-right: 4px;">
-    siatube.web@gmail.com
+    siawaseok@siatube.com(返信は別アドレスから)
   </li>
   <li>
     <img src="https://www.line.me/static/img/apple-touch-icon-57x57.png" alt="LINE" width="16" height="16" style="vertical-align: middle; margin-right: 4px;">
