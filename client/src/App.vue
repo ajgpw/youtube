@@ -11,12 +11,26 @@
         <div>
           <strong>新しいバージョンがあります</strong>
           <p>現在: {{ currentVersion }} ／ 最新: {{ latestVersion }}</p>
+          <p v-if="temporaryUpdateError" class="temporary-update-error">
+            最新バージョンを読み込めませんでした。通信またはプロキシ設定を確認してください。
+          </p>
         </div>
-        <button
-          type="button"
-          aria-label="更新のお知らせを閉じる"
-          @click="updateAvailable = false"
-        >✕</button>
+        <div class="version-warning-actions">
+          <button
+            type="button"
+            class="use-latest-version"
+            :disabled="temporaryUpdateLoading"
+            @click="useLatestVersionTemporarily"
+          >
+            {{ temporaryUpdateLoading ? "読み込み中…" : "最新バージョンを一時的に使用" }}
+          </button>
+          <button
+            type="button"
+            class="dismiss-version-warning"
+            aria-label="更新のお知らせを閉じる"
+            @click="updateAvailable = false"
+          >✕</button>
+        </div>
       </div>
       <div
         v-if="connectionFailurePrompt"
@@ -54,7 +68,11 @@ import { ref, computed, provide, watch, onBeforeUnmount } from 'vue';
 import { loadDisplayMode, computeIsDarkFromMode } from '@/utils/settingsManager';
 import { useRoute } from 'vue-router';
 import { API_CONNECTION_FAILURE_EVENT } from '@/services/siatubeApi';
-import { checkForUpdate } from '@/utils/versionCheck';
+import {
+  checkForUpdate,
+  fetchLatestBuildHtml,
+  replaceDocumentWithHtml,
+} from '@/utils/versionCheck';
 
 export default {
   name: 'App',
@@ -74,6 +92,8 @@ export default {
     const updateAvailable = ref(false);
     const currentVersion = ref("");
     const latestVersion = ref("");
+    const temporaryUpdateLoading = ref(false);
+    const temporaryUpdateError = ref(false);
 
     // Always initialize settingsModalOpen to false on page load
     console.log('[App.vue] Initialized settingsModalOpen to false on page load');
@@ -103,6 +123,20 @@ export default {
     const openProxySettings = () => {
       connectionFailurePrompt.value = false;
       openSettingsModal();
+    };
+
+    const useLatestVersionTemporarily = async () => {
+      if (temporaryUpdateLoading.value) return;
+      temporaryUpdateLoading.value = true;
+      temporaryUpdateError.value = false;
+      try {
+        const html = await fetchLatestBuildHtml();
+        replaceDocumentWithHtml(html);
+      } catch (error) {
+        console.error('[App.vue] Failed to load latest temporary build', error);
+        temporaryUpdateError.value = true;
+        temporaryUpdateLoading.value = false;
+      }
     };
 
     window.addEventListener(API_CONNECTION_FAILURE_EVENT, handleApiConnectionFailure);
@@ -189,6 +223,9 @@ export default {
       updateAvailable,
       currentVersion,
       latestVersion,
+      temporaryUpdateLoading,
+      temporaryUpdateError,
+      useLatestVersionTemporarily,
     };
   },
   methods: {
@@ -247,7 +284,7 @@ export default {
   font-size: 0.9rem;
 }
 
-.version-warning button {
+.dismiss-version-warning {
   border: 0;
   padding: 6px 9px;
   color: inherit;
@@ -256,9 +293,60 @@ export default {
   cursor: pointer;
 }
 
+.version-warning-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.use-latest-version {
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.45);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.use-latest-version:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.temporary-update-error {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
 html.dark-mode .version-warning {
   color: #fef08a;
   background: #422006;
+}
+
+html.dark-mode .use-latest-version {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+html.dark-mode .temporary-update-error {
+  color: #fca5a5;
+}
+
+@media (max-width: 600px) {
+  .version-warning {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .version-warning-actions {
+    width: 100%;
+  }
+
+  .use-latest-version {
+    flex: 1;
+  }
 }
 
 #app {

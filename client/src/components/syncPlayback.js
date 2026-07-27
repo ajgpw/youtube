@@ -12,47 +12,9 @@ export function setupSyncPlayback(video, audio, sources, selectedQuality, diffTe
   }
   const safariMode = isSafariLike();
 
-  function normalizeSources(v) {
-    if (!v) return [];
-    if (Array.isArray(v.sources) && v.sources.length > 0) {
-      return preferH264First(v.sources
-        .map((s) => ({
-          url: typeof s === "string" ? s : (s?.url || ""),
-          mimeType: typeof s === "string" ? "" : (s?.mimeType || ""),
-        }))
-        .filter((s) => s.url));
-    }
-    if (typeof v === "string") return preferH264First([{ url: v, mimeType: "" }]);
-    if (v.url) return preferH264First([{ url: v.url, mimeType: v.mimeType || "" }]);
-    return [];
-  }
-
-  function preferH264First(list) {
-    if (!Array.isArray(list) || list.length <= 1) return list || [];
-    const isH264 = (s) => {
-      const mt = (s && s.mimeType) ? String(s.mimeType).toLowerCase() : "";
-      const url = (s && s.url) ? String(s.url).toLowerCase() : "";
-      if (mt.includes("video/mp4")) return true;
-      if (mt.includes("avc1") || mt.includes("h264")) return true;
-      if (url.endsWith(".mp4")) return true;
-      if (url.includes("codecs=avc1") || url.includes("codecs%3davc1")) return true;
-      return false;
-    };
-    return list.slice().sort((a, b) => {
-      const aw = isH264(a) ? 1 : 0;
-      const bw = isH264(b) ? 1 : 0;
-      return bw - aw;
-    });
-  }
-
   function clearMediaSources(media) {
     if (!media) return;
-    const sources = media.querySelectorAll(":scope > source");
-    sources.forEach((source) => {
-      source.removeAttribute("src");
-      source.removeAttribute("type");
-      source.remove();
-    });
+    media.querySelectorAll(":scope > source").forEach((source) => source.remove());
     media.removeAttribute("src");
     media.load();
   }
@@ -60,18 +22,25 @@ export function setupSyncPlayback(video, audio, sources, selectedQuality, diffTe
   function setMediaSources(media, sourcesList) {
     if (!media) return;
     media.querySelectorAll(":scope > source").forEach((source) => source.remove());
-    if (Array.isArray(sourcesList) && sourcesList.length > 0) {
-      for (const s of sourcesList) {
-        if (!s || !s.url) continue;
-        const source = document.createElement("source");
-        source.src = s.url;
-        if (s.mimeType) source.type = s.mimeType;
-        media.appendChild(source);
-      }
-    } else {
-      media.src = "";
+    for (const sourceData of Array.isArray(sourcesList) ? sourcesList : []) {
+      if (!sourceData?.url) continue;
+      const source = document.createElement("source");
+      source.src = sourceData.url;
+      if (sourceData.mimeType) source.type = sourceData.mimeType;
+      media.appendChild(source);
     }
     media.load();
+  }
+
+  function normalizeSources(value) {
+    if (!value) return [];
+    const list = Array.isArray(value.sources) && value.sources.length
+      ? value.sources
+      : [value];
+    return list.map((source) => ({
+      url: typeof source === "string" ? source : source?.url,
+      mimeType: typeof source === "string" ? "" : source?.mimeType,
+    })).filter((source) => source.url);
   }
 
   // 以前の同期ループを無効化（古いループを止める）
@@ -90,19 +59,15 @@ export function setupSyncPlayback(video, audio, sources, selectedQuality, diffTe
     return;
   }
   const videoSources = normalizeSources(videoSrc);
-  const audioSources = normalizeSources(audioSrc);
-  const audioUrl = audioSources[0]?.url || "";
-  const audioMime = audioSources[0]?.mimeType || "";
+  const audioSources = normalizeSources(audioSrc).slice(0, 1);
 
   if (safariMode) {
     video.pause();
     audio.pause();
     clearMediaSources(video);
     clearMediaSources(audio);
-
-    // 新しいソースをセット
     setMediaSources(video, videoSources);
-    setMediaSources(audio, audioUrl ? [{ url: audioUrl, mimeType: audioMime }] : []);
+    setMediaSources(audio, audioSources);
 
     // 初期倍速反映
     video.playbackRate = selectedPlaybackRate.value;
@@ -183,9 +148,8 @@ export function setupSyncPlayback(video, audio, sources, selectedQuality, diffTe
   audio.pause();
   clearMediaSources(video);
   clearMediaSources(audio);
-  // 新しいソースをセット
   setMediaSources(video, videoSources);
-  setMediaSources(audio, audioUrl ? [{ url: audioUrl, mimeType: audioMime }] : []);
+  setMediaSources(audio, audioSources);
 
   let isStartupJumpDone = false;
   let isBuffering = false;

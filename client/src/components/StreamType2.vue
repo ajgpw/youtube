@@ -1,7 +1,25 @@
 <template>
-  <div v-if="error" class="error-box" role="alert" aria-live="polite">
-    ⚠️ {{ error }}
-    <button @click="reloadStream" class="reload-button">再取得</button>
+  <div
+    v-if="error"
+    class="error-box"
+    :class="{ 'premiere-scheduled': isPremiereScheduled }"
+    role="alert"
+    aria-live="polite"
+  >
+    <div class="error-title">
+      {{ isPremiereScheduled ? "プレミア公開を待っています" : "⚠️ エラー" }}
+    </div>
+    <div class="error-message">{{ error }}</div>
+    <div v-if="isPremiereScheduled && premiereScheduledText" class="premiere-scheduled-at">
+      公開予定: {{ premiereScheduledText }}
+    </div>
+    <button
+      v-if="!hideErrorReloadButton"
+      @click="reloadStream"
+      class="reload-button"
+    >
+      再取得
+    </button>
   </div>
   <div v-else-if="selectedQuality && availableQualities.length > 0" class="video-container">
     <!-- single-stream (audio+video) が使える場合 -->
@@ -9,10 +27,13 @@
       <video
         ref="videoRef"
         controls
+        preload="metadata"
         :autoplay="autoplayEnabled"
         :loop="repeatEnabled"
-        :key="sources[selectedQuality]?.url"
+        :key="`${playerRenderKey}:${sources[selectedQuality]?.url || ''}`"
         @canplay="markPlayerReady"
+        @loadedmetadata="markPlayerReady"
+        @loadeddata="markPlayerReady"
         @playing="markPlayerPlaying"
         @waiting="markPlayerBuffering"
       >
@@ -21,15 +42,6 @@
           :key="s.url"
           :src="s.url"
           :type="s.mimeType || (s.isM3u8 ? 'application/x-mpegURL' : undefined)"
-        />
-        <track
-          v-for="track in subtitleTracks"
-          :key="`${track.srclang}:${track.src}`"
-          :src="track.src"
-          :srclang="track.srclang"
-          :label="track.label"
-          :kind="track.kind"
-          :default="track.default"
         />
       </video>
 
@@ -80,11 +92,17 @@
             preload="auto"
             :autoplay="autoplayEnabled"
             controls
+            :key="`${playerRenderKey}:audio:${selectedQuality}`"
             @canplay="markPlayerReady"
+            @loadedmetadata="markPlayerReady"
+            @loadeddata="markPlayerReady"
             @playing="markPlayerPlaying"
             @waiting="markPlayerBuffering"
           >
-            <source :src="sources[selectedQuality]?.audio?.url" :type="sources[selectedQuality]?.audio?.mimeType" />
+            <source
+              :src="sources[selectedQuality]?.audio?.url"
+              :type="sources[selectedQuality]?.audio?.mimeType"
+            />
           </audio>
         </div>
       </template>
@@ -94,8 +112,10 @@
           preload="auto"
           :autoplay="autoplayEnabled"
           controls
-          :key="separateAvKey"
+          :key="`${playerRenderKey}:${separateAvKey}:video`"
           @canplay="markPlayerReady"
+          @loadedmetadata="markPlayerReady"
+          @loadeddata="markPlayerReady"
           @playing="markPlayerPlaying"
           @waiting="markPlayerBuffering"
         >
@@ -104,15 +124,6 @@
             :key="s.url"
             :src="s.url"
             :type="s.mimeType"
-          />
-          <track
-            v-for="track in subtitleTracks"
-            :key="`${track.srclang}:${track.src}`"
-            :src="track.src"
-            :srclang="track.srclang"
-            :label="track.label"
-            :kind="track.kind"
-            :default="track.default"
           />
         </video>
         <div v-if="showUnmutePrompt" class="unmute-prompt" @click.stop="handleUnmuteClick">
@@ -123,12 +134,17 @@
           preload="auto"
           style="display:none;"
           autoplay
-          :key="separateAvKey"
+          :key="`${playerRenderKey}:${separateAvKey}:audio`"
           @canplay="markPlayerReady"
+          @loadedmetadata="markPlayerReady"
+          @loadeddata="markPlayerReady"
           @playing="markPlayerPlaying"
           @waiting="markPlayerBuffering"
         >
-          <source :src="sources[selectedQuality]?.audio?.url" :type="sources[selectedQuality]?.audio?.mimeType" />
+          <source
+            :src="sources[selectedQuality]?.audio?.url"
+            :type="sources[selectedQuality]?.audio?.mimeType"
+          />
         </audio>
       </template>
 
@@ -208,6 +224,7 @@ import {
   revokeSubtitleTracks,
   selectPlaybackSubtitleTracks,
 } from "@/utils/subtitleTracks";
+import { claimType2StreamRequestSlot } from "@/utils/type2StreamRequestCooldown";
 
 const props = defineProps({
   videoId: { type: String, required: true }
@@ -222,6 +239,31 @@ function reloadStream() {
 }
 
 const error = ref("");
+const errorCode = ref("");
+const errorExpiresAt = ref(0);
+const isPremiereScheduled = computed(
+  () => errorCode.value === "premiere_scheduled"
+);
+const hideErrorReloadButton = computed(
+  () => isPremiereScheduled.value &&
+    errorExpiresAt.value > 0 &&
+    statusClock.value < errorExpiresAt.value
+);
+const premiereScheduledText = computed(() => {
+  if (!isPremiereScheduled.value || errorExpiresAt.value <= 0) return "";
+  try {
+    return new Intl.DateTimeFormat("ja-JP", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(new Date(errorExpiresAt.value));
+  } catch {
+    return "";
+  }
+});
 const sources = ref({});
 const selectedQuality = ref("");
 const availableQualities = ref([]);
@@ -233,8 +275,15 @@ const diffText = ref("0");
 const videoRef = ref(null);
 const audioRef = ref(null);
 const separateAvKey = ref(0);
+// サーバー応答後に media 要素を確実に作り直すためのキー。
+// 待機画面から復帰するときに古い video/audio の内部状態を持ち越さない。
+const playerRenderKey = ref(0);
+const INITIAL_PLAYBACK_RECOVERY_DELAY_MS = 1500;
+let initialPlaybackRecoveryTimer = null;
+let initialPlaybackRecovery = null;
+let initialPlaybackRecoveryRunning = false;
 const repeatEnabled = ref(false);
-// デフォルトはオフにする
+// デフォルトはオフ
 const AUTOPLAY_SETTING_KEY = 'yt_autoplay_enabled_v1';
 function loadAutoplaySetting() {
   try {
@@ -324,6 +373,99 @@ function destroyHls() {
   hlsInstance = null;
 }
 
+function clearInitialPlaybackRecovery() {
+  if (initialPlaybackRecoveryTimer !== null) {
+    window.clearTimeout(initialPlaybackRecoveryTimer);
+    initialPlaybackRecoveryTimer = null;
+  }
+  initialPlaybackRecovery = null;
+  initialPlaybackRecoveryRunning = false;
+}
+
+function hasPlayableDuration(mediaEl = videoRef.value || audioRef.value) {
+  if (!mediaEl) return false;
+  const duration = mediaEl.duration;
+  return duration === Infinity ||
+    (Number.isFinite(duration) && duration > 0);
+}
+
+function isPrimaryMediaElement(mediaEl) {
+  return mediaEl === videoRef.value ||
+    (!videoRef.value && mediaEl === audioRef.value);
+}
+
+function qualityHeight(quality) {
+  const match = String(quality || "").match(/^(\d+)p/);
+  return match ? Number(match[1]) : 0;
+}
+
+function scheduleInitialPlaybackRecovery() {
+  if (!initialPlaybackRecovery) return;
+  if (initialPlaybackRecoveryTimer !== null) {
+    window.clearTimeout(initialPlaybackRecoveryTimer);
+  }
+  initialPlaybackRecoveryTimer = window.setTimeout(
+    recoverInitialPlayback,
+    INITIAL_PLAYBACK_RECOVERY_DELAY_MS
+  );
+}
+
+function beginInitialPlaybackRecovery(sequence, id, quality) {
+  clearInitialPlaybackRecovery();
+  if (!quality) return;
+  initialPlaybackRecovery = { sequence, id, quality };
+  scheduleInitialPlaybackRecovery();
+}
+
+async function recoverInitialPlayback() {
+  initialPlaybackRecoveryTimer = null;
+  const context = initialPlaybackRecovery;
+  if (!context || hasPlayableDuration()) {
+    clearInitialPlaybackRecovery();
+    return;
+  }
+  if (
+    context.sequence !== streamRequestSequence ||
+    context.id !== props.videoId ||
+    selectedQuality.value !== context.quality
+  ) {
+    clearInitialPlaybackRecovery();
+    return;
+  }
+
+  // 初回だけ、ユーザーが行う画質変更と同じ経路を一度通す。
+  const fallbackQuality = availableQualities.value
+    .filter(
+      (quality) =>
+        quality !== context.quality &&
+        qualityHeight(quality) > 0 &&
+        qualityHeight(quality) <= 1080 &&
+        !isAudioOnlyEntry(sources.value[quality])
+    )
+    .sort((a, b) => qualityHeight(b) - qualityHeight(a))[0] ||
+    (qualityHeight(context.quality) <= 1080 ? context.quality : "");
+  if (!fallbackQuality) {
+    clearInitialPlaybackRecovery();
+    return;
+  }
+  initialPlaybackRecoveryRunning = true;
+  selectedQuality.value = "";
+  await nextTick();
+  if (
+    context.sequence !== streamRequestSequence ||
+    context.id !== props.videoId
+  ) {
+    clearInitialPlaybackRecovery();
+    return;
+  }
+  playerRenderKey.value += 1;
+  initialPlaybackRecovery.quality = fallbackQuality;
+  selectedQuality.value = fallbackQuality;
+  initialPlaybackRecoveryRunning = false;
+  // 自動復旧は一度だけ。以降は通常のブラウザ側エラー表示に任せる。
+  initialPlaybackRecovery = null;
+}
+
 const endedHandler = {
   fn: async () => {
     try { emit('ended'); } catch (e) {}
@@ -362,7 +504,7 @@ function pushToHistory(id) {
 }
 
 // 自動再生候補選定
-// window.__autoplayCandidates があればそこから選ぶ。なければ DOM の data-video-id から選ぶ。
+// window.__autoplayCandidates があればそこから選ぶ。ないなら DOM の data-video-id から選ぶ。
 function getAutoplayCandidateId() {
   try {
     const recent = new Set(loadPlayHistory());
@@ -420,8 +562,6 @@ function getAutoplayCandidateId() {
   return null;
 }
 
-// プリフェッチ関連は廃止。候補IDのみを返すユーティリティを使う。
-
 const nativeHlsSupported = ref(false);
 const hasM3u8 = ref(false);
 
@@ -471,6 +611,7 @@ onBeforeUnmount(() => {
   if (statusClockTimer !== null) window.clearInterval(statusClockTimer);
   streamStatusTimer = null;
   statusClockTimer = null;
+  clearInitialPlaybackRecovery();
   destroyHls();
   revokeSubtitleTracks(subtitleTracks.value);
   try { cancelAutoplay(); } catch (e) {}
@@ -537,13 +678,31 @@ function applyVideoSources(videoEl, sourcesList) {
       ? sourcesList
       : progressiveSources;
     for (const s of playableSources) {
-      if (!s || !s.url) continue;
-      const sourceEl = document.createElement('source');
+      if (!s?.url) continue;
+      const sourceEl = document.createElement("source");
       sourceEl.src = s.url;
       if (s.mimeType) sourceEl.type = s.mimeType;
       videoEl.appendChild(sourceEl);
     }
     videoEl.load();
+  } catch (e) {}
+}
+
+function applySubtitleTracks(videoEl, tracks) {
+  if (!videoEl) return;
+  try {
+    videoEl.querySelectorAll(":scope > track[data-type2-subtitle]").forEach((track) => track.remove());
+    for (const track of Array.isArray(tracks) ? tracks : []) {
+      if (!track?.src) continue;
+      const trackEl = document.createElement("track");
+      trackEl.dataset.type2Subtitle = "1";
+      trackEl.src = track.src;
+      trackEl.srclang = track.srclang || "ja";
+      trackEl.label = track.label || trackEl.srclang;
+      trackEl.kind = track.kind || "subtitles";
+      trackEl.default = Boolean(track.default);
+      videoEl.appendChild(trackEl);
+    }
   } catch (e) {}
 }
 
@@ -904,6 +1063,7 @@ function applyHlsSetup(prevTime = 0) {
     const entry = sources.value[selectedQuality.value];
     if (videoRef.value && isSingleStreamEntry(entry)) {
       applyVideoSources(videoRef.value, getSingleStreamSources(entry));
+      markPlayerReady();
     }
     // 再レンダリング後に時間を復元して再生を試みる
     try {
@@ -951,9 +1111,17 @@ function applyHlsSetup(prevTime = 0) {
 }
 
 // selectedQuality の監視: 選択先が HLS(url) を持つかどうかで挙動を分ける
-watch(selectedQuality, () => {
+watch(selectedQuality, (newQuality) => {
   playerReady.value = false;
   playerBuffering.value = false;
+  if (
+    initialPlaybackRecovery &&
+    !initialPlaybackRecoveryRunning &&
+    newQuality &&
+    newQuality !== initialPlaybackRecovery.quality
+  ) {
+    clearInitialPlaybackRecovery();
+  }
   const sel = selectedQuality.value;
   const entry = sources.value[sel];
 
@@ -983,6 +1151,7 @@ watch(selectedQuality, () => {
             audioRef.value.src = entry.audio.url;
           }
           audioRef.value.load();
+          markPlayerReady();
         }
       } catch (e) {}
       applyRepeatAndAutoplay();
@@ -1034,6 +1203,7 @@ watch(selectedQuality, () => {
         diffText,
         selectedPlaybackRate
       );
+      if (videoRef.value || audioRef.value) markPlayerReady();
       applyRepeatAndAutoplay();
       
       // ended リスナを再attach
@@ -1102,8 +1272,11 @@ function applyRepeatAndAutoplay() {
 
 async function fetchStreamUrl(id, forceRefresh = false) {
   const sequence = ++streamRequestSequence;
+  clearInitialPlaybackRecovery();
   destroyHls();
   error.value = "";
+  errorCode.value = "";
+  errorExpiresAt.value = 0;
   sources.value = {};
   selectedQuality.value = "";
   selectedPlaybackRate.value = 1.0;
@@ -1117,6 +1290,14 @@ async function fetchStreamUrl(id, forceRefresh = false) {
   subtitleTracks.value = [];
 
   try {
+    // タイプ2の全動画IDでAPIリクエスト間隔を共有する。
+    while (true) {
+      const cooldownMs = claimType2StreamRequestSlot();
+      if (cooldownMs === 0) break;
+      await new Promise((resolve) => window.setTimeout(resolve, cooldownMs));
+      if (sequence !== streamRequestSequence || id !== props.videoId) return;
+    }
+
     const data = await fetchStream(id, {
       forceRefresh,
       origin: "siatube",
@@ -1144,6 +1325,7 @@ async function fetchStreamUrl(id, forceRefresh = false) {
       }
       revokeSubtitleTracks(subtitleTracks.value);
       subtitleTracks.value = localizedTracks;
+      applySubtitleTracks(videoRef.value, localizedTracks);
     });
     if (!parsed || Object.keys(parsed.sources || {}).length === 0) {
       error.value = "利用可能なストリームがありません。";
@@ -1167,107 +1349,8 @@ async function fetchStreamUrl(id, forceRefresh = false) {
     const preferredResolved = resolvePreferred(preferred, availableQualities.value);
     selectedQuality.value = preferredResolved || parsed.defaultQuality || availableQualities.value[0] || "";
     hasM3u8.value = !!parsed.hasM3u8;
-
-    // DOM 更新後のセットアップ
-    nextTick().then(() => {
-      if (sequence !== streamRequestSequence || id !== props.videoId) return;
-      // decide actual playback mode for the selected quality:
-      const sel = selectedQuality.value;
-      const selEntry = sources.value[sel];
-
-      const granted = (() => { try { return localStorage.getItem(USER_GESTURE_KEY) === '1'; } catch (e) { return false; } })();
-
-      // ended リスナを確実に再attach
-      if (videoRef.value) {
-        try {
-          videoRef.value.removeEventListener('ended', _onEnded);
-          videoRef.value.addEventListener('ended', _onEnded);
-          _onEndedAttached = true;
-        } catch (e) {}
-      }
-
-      // If selected entry has single-stream URL and device can use it -> use single video flow
-      if (isSingleStreamEntry(selEntry)) {
-        try {
-          if (videoRef.value) {
-            applyVideoSources(videoRef.value, getSingleStreamSources(selEntry));
-            videoRef.value.muted = !granted;
-            if (autoplayEnabled.value) scheduleAutoplay();
-          }
-          attachBufferListeners();
-          showUnmutePrompt.value = !granted;
-          if (!granted) {
-            window.addEventListener('click', onFirstUserGesture, { once: true });
-            window.addEventListener('touchstart', onFirstUserGesture, { once: true });
-          }
-        } catch (e) {}
-        // Add playback check
-        if (videoRef.value) {
-          videoRef.value.addEventListener('canplay', checkPlayback, { once: true });
-        }
-      } else if (isAudioOnlyEntry(selEntry)) {
-        try {
-          if (audioRef.value && selEntry.audio?.url) {
-            const source = audioRef.value.querySelector('source');
-            if (source) {
-              source.src = selEntry.audio.url;
-              if (selEntry.audio.mimeType) source.type = selEntry.audio.mimeType;
-            } else {
-              audioRef.value.src = selEntry.audio.url;
-            }
-            audioRef.value.load();
-          }
-          if (audioRef.value) {
-            audioRef.value.muted = !granted;
-            if (autoplayEnabled.value) scheduleAutoplay();
-          }
-          attachBufferListeners();
-          showUnmutePrompt.value = !granted;
-          if (!granted) {
-            window.addEventListener('click', onFirstUserGesture, { once: true });
-            window.addEventListener('touchstart', onFirstUserGesture, { once: true });
-          }
-        } catch (e) {}
-        if (audioRef.value) {
-          audioRef.value.addEventListener('canplay', checkPlayback, { once: true });
-        }
-      } else {
-        // Use legacy video+audio synchronization if video URL exists
-        if (selEntry?.video) {
-          setupSyncPlayback(
-            videoRef.value,
-            audioRef.value,
-            sources,
-            selectedQuality,
-            diffText,
-            selectedPlaybackRate
-          );
-          try {
-            if (videoRef.value) {
-              videoRef.value.muted = !granted;
-              if (autoplayEnabled.value) scheduleAutoplay();
-            }
-            if (audioRef.value) {
-              audioRef.value.muted = !granted;
-              if (autoplayEnabled.value) scheduleAutoplay();
-            }
-            attachBufferListeners();
-            showUnmutePrompt.value = !granted;
-            if (!granted) {
-              window.addEventListener('click', onFirstUserGesture, { once: true });
-              window.addEventListener('touchstart', onFirstUserGesture, { once: true });
-            }
-          } catch (e) {}
-          // Add playback check
-          if (videoRef.value) {
-            videoRef.value.addEventListener('canplay', checkPlayback, { once: true });
-          }
-          if (audioRef.value) {
-            audioRef.value.addEventListener('canplay', checkPlayback, { once: true });
-          }
-        }
-      }
-    });
+    playerRenderKey.value += 1;
+    beginInitialPlaybackRecovery(sequence, id, selectedQuality.value);
 
     // 自動再生が有効なら候補IDだけ確認する（プリフェッチは行わない）
     try {
@@ -1281,6 +1364,9 @@ async function fetchStreamUrl(id, forceRefresh = false) {
     if (sequence !== streamRequestSequence || id !== props.videoId) return;
     loading.value = false;
     if (isVideoStreamError(err)) {
+      errorCode.value = err.code || "";
+      const expiresAt = Date.parse(err.payload?.expiresAt || "");
+      errorExpiresAt.value = Number.isFinite(expiresAt) ? expiresAt : 0;
       error.value = err.payload?.message || err.message;
     } else if (err?.connectionFailure) {
       error.value = err.message;
@@ -1297,14 +1383,24 @@ async function fetchStreamUrl(id, forceRefresh = false) {
   }
 }
 
-function markPlayerReady() {
+function markPlayerReady(event) {
   playerReady.value = true;
   playerBuffering.value = false;
+  if (
+    event?.currentTarget &&
+    isPrimaryMediaElement(event.currentTarget) &&
+    hasPlayableDuration(event.currentTarget)
+  ) {
+    clearInitialPlaybackRecovery();
+  }
 }
 
-function markPlayerPlaying() {
+function markPlayerPlaying(event) {
   playerReady.value = true;
   playerBuffering.value = false;
+  if (event?.currentTarget && isPrimaryMediaElement(event.currentTarget)) {
+    clearInitialPlaybackRecovery();
+  }
 }
 
 function markPlayerBuffering() {
@@ -1340,6 +1436,7 @@ watch(videoRef, (newEl, oldEl) => {
       newEl.removeEventListener('ended', _onEnded);
       newEl.addEventListener('ended', _onEnded);
       _onEndedAttached = true;
+      applySubtitleTracks(newEl, subtitleTracks.value);
     } catch (e) {}
   }
 }, { flush: 'post' });
@@ -1366,12 +1463,98 @@ watch(videoRef, (newEl, oldEl) => {
   gap: 14px;
 }
 
+.error-title {
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.error-message {
+  max-width: 760px;
+}
+
+.error-box.premiere-scheduled {
+  min-height: 220px;
+  padding: 0 0 26px;
+  border: 1px solid var(--text-secondary);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.error-box.premiere-scheduled .error-title {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 11px 16px;
+  background: transparent;
+  color: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: clamp(18px, 2.5vw, 23px);
+  line-height: 1.3;
+}
+
+.error-box.premiere-scheduled .error-title::before {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin: 0 10px 2px 0;
+  border-radius: 50%;
+  background: #d22;
+  content: "";
+}
+
+.error-box.premiere-scheduled .error-message {
+  padding: 4px 22px 0;
+  color: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: clamp(15px, 2vw, 18px);
+  line-height: 1.6;
+}
+
+.premiere-scheduled-at {
+  padding: 8px 16px;
+  border: 1px solid var(--text-secondary);
+  border-radius: 2px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+}
+
 .error-box .reload-button {
   width: auto;
   min-width: 120px;
   margin-top: 0;
   padding: 9px 20px;
   font-size: 14px;
+}
+
+.error-box.premiere-scheduled .reload-button {
+  border: 1px solid var(--text-secondary);
+  border-radius: 2px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.error-box.premiere-scheduled .reload-button:hover {
+  background: var(--hover-bg);
+}
+
+@media (max-width: 600px) {
+  .error-box.premiere-scheduled {
+    min-height: 210px;
+    padding: 0 0 24px;
+  }
+
+  .premiere-scheduled-at {
+    max-width: calc(100% - 32px);
+    font-size: 14px;
+  }
 }
 
 .stream-status-panel {

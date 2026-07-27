@@ -155,6 +155,39 @@ test("stream exposes documented video errors by code without retrying", async (t
   assert.equal(calls, 1);
 });
 
+test("stream exposes scheduled premiere errors for the type 2 player", async (t) => {
+  clearStreamCache();
+  const originalFetch = globalThis.fetch;
+  const payload = {
+    error: "Premiere Scheduled",
+    message: "この動画は100分後にプレミア公開される予約動画です。",
+    detail: "この動画は100分後にプレミア公開される予約動画です。",
+    code: "premiere_scheduled",
+    videoId: "_0x-iHlwc9s",
+    cachedFailure: true,
+    skippedYtDlp: true,
+    recordedAt: "2026-07-27T07:34:55.629Z",
+    expiresAt: "2026-07-27T09:14:55.630Z",
+  };
+  globalThis.fetch = async () => jsonResponse(payload);
+  t.after(() => {
+    clearStreamCache();
+    globalThis.fetch = originalFetch;
+  });
+
+  await assert.rejects(
+    () => stream("_0x-iHlwc9s", { retries: 1 }),
+    (error) => {
+      assert.equal(error.code, "premiere_scheduled");
+      assert.equal(error.message, payload.message);
+      assert.deepEqual(error.payload, payload);
+      assert.equal(error.retryable, false);
+      assert.equal(isVideoStreamError(error), true);
+      return true;
+    },
+  );
+});
+
 test("video stream error detection only accepts documented fixed codes", () => {
   for (const code of [
     "members_only",
@@ -163,6 +196,7 @@ test("video stream error detection only accepts documented fixed codes", () => {
     "copyright_removed",
     "account_terminated",
     "unavailable",
+    "premiere_scheduled",
   ]) {
     assert.equal(isVideoStreamError({ code }), true);
   }

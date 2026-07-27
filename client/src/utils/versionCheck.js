@@ -3,6 +3,8 @@ import { loadRequestProxy, proxiedRequestUrl } from "./requestProxy.js";
 
 export const VERSION_SOURCE_URL =
   "https://raw.githubusercontent.com/ajgpw/youtube/refs/heads/main/client/version.txt";
+export const LATEST_BUILD_URL =
+  "https://raw.githubusercontent.com/ajgpw/youtube/refs/heads/main/siatube-full.html.txt";
 
 export function normalizeVersion(value) {
   return String(value ?? "")
@@ -45,6 +47,33 @@ async function fetchVersion(url) {
   return version;
 }
 
+export async function fetchLatestBuildHtml() {
+  const proxyUrl = loadRequestProxy().url;
+  const requestUrl = proxyUrl
+    ? proxiedRequestUrl(LATEST_BUILD_URL, proxyUrl)
+    : LATEST_BUILD_URL;
+  const response = await fetch(requestUrl, {
+    cache: "no-store",
+    redirect: "follow",
+    headers: { Accept: "text/html,text/plain" },
+  });
+  if (!response.ok) {
+    throw new Error(`Latest build request failed: ${response.status}`);
+  }
+
+  const html = await response.text();
+  if (!/<(?:!doctype\s+html|html)(?:\s|>)/i.test(html)) {
+    throw new Error("Invalid latest build response");
+  }
+  return html;
+}
+
+export function replaceDocumentWithHtml(html) {
+  document.open();
+  document.write(html);
+  document.close();
+}
+
 export async function checkForUpdate() {
   const currentVersion = normalizeVersion(currentVersionSource);
   const candidates = [VERSION_SOURCE_URL];
@@ -58,7 +87,7 @@ export async function checkForUpdate() {
       latestVersion = await fetchVersion(url);
       break;
     } catch {
-      // Try the configured proxy and then the deployment's server-side proxy.
+      // Try the proxy.
     }
   }
 

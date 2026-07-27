@@ -24,6 +24,7 @@ export const VIDEO_STREAM_ERROR_CODES = new Set([
   "copyright_removed",
   "account_terminated",
   "unavailable",
+  "premiere_scheduled",
 ]);
 const API_HEALTH_URL = `${SIATUBE_API_ORIGIN}/health`;
 const API_HEALTH_TIMEOUT_MS = 10_000;
