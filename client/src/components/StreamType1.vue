@@ -1,125 +1,365 @@
 <template>
-  <div v-if="error" class="error-box">
+  <div v-if="error" class="error-box" role="alert">
     ⚠️ {{ error }}
     <button @click="reloadStream" class="reload-button">再取得</button>
   </div>
-  <div v-else-if="streamUrl" class="video-container">
-    <iframe
-      :src="streamUrl"
-      frameborder="0"
-      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-      allowfullscreen
-      referrerpolicy="strict-origin-when-cross-origin"
-      :title="videoTitle || '動画ストリーム'"
-      @load="iframeLoaded = true"
-    ></iframe>
+  <div
+    v-else-if="streamUrl"
+    class="video-container"
+    @mouseenter="showSettingsBox"
+  >
+    <div class="player-host">
+      <iframe
+        :key="iframeRenderKey"
+        ref="iframeRef"
+        :src="streamUrl"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+        allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin"
+        :title="videoTitle || '動画ストリーム'"
+        @load="iframeLoaded = true"
+      ></iframe>
+    </div>
+    <div
+      v-if="showUnmutePrompt"
+      class="unmute-prompt"
+      @click.stop="handleUnmuteClick"
+    >
+      ミュートを解除する
+    </div>
+    <div
+      v-show="settingsVisible"
+      class="settings-box"
+      @mouseenter="showSettingsBox"
+      @click.stop="showSettingsBox"
+    >
+      <label>
+        繰り返し:
+        <input type="checkbox" v-model="repeatEnabled" />
+      </label>
+      <label :class="{ 'autoplay-disabled': repeatEnabled }">
+        自動再生:
+        <input
+          type="checkbox"
+          v-model="autoplayEnabled"
+          :disabled="repeatEnabled"
+        />
+      </label>
+      <button @click="reloadStream" class="reload-button">再読込み</button>
+    </div>
     <PlayerLoading v-if="!iframeLoaded" overlay />
   </div>
   <PlayerLoading v-else-if="loading" />
 </template>
 
 <script setup>
-import { ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import PlayerLoading from "@/components/PlayerLoading.vue";
 import { apiRequest } from "@/services/requestManager";
+import {
+  getAutoplayCandidateId,
+  pushToAutoplayHistory,
+} from "@/utils/autoplayManager";
+import {
+  AUTOPLAY_SETTING_EVENT,
+  loadAutoplay,
+  saveAutoplay,
+} from "@/utils/settingsManager";
+import {
+  createYoutubeEducationEmbedUrl,
+  ensureYoutubeEducationPlayerApi,
+  loadYoutubeEducationPlayerData,
+} from "@/utils/youtubeEducationPlayer";
 
 const props = defineProps({
   videoId: { type: String, required: true },
-  videoTitle: { type: String, default: "" }
+  videoTitle: { type: String, default: "" },
 });
+const emit = defineEmits([
+  "ended",
+  "play-autoplay-candidate",
+  "autoplay-no-suitable-video",
+]);
 
 const streamUrl = ref("");
 const error = ref("");
 const loading = ref(false);
 const iframeLoaded = ref(false);
+const iframeRef = ref(null);
+const iframeRenderKey = ref(0);
+const autoplayEnabled = ref(loadAutoplay());
+const repeatEnabled = ref(false);
+const settingsVisible = ref(true);
+const showUnmutePrompt = ref(false);
 
-// --- キャッシュ用 ---
-let cachedParams = null;
-let cachedAt = 0; // タイムスタンプ(ms)
+let player = null;
+let playerReady = false;
+let requestSequence = 0;
+let endedHandled = false;
+let settingsHideTimer = null;
+const repeatRestartTimers = new Set();
+const USER_GESTURE_KEY = "yt_user_gesture_v1";
 
-function reloadStream() {
-  fetchStream(props.videoId);
+function clearRepeatRestartTimers() {
+  for (const timer of repeatRestartTimers) window.clearTimeout(timer);
+  repeatRestartTimers.clear();
 }
 
-const sheetId = "1dily2wiik92TAyK3zyIsu8TDuyYNoF20IM1iMk_X-pg";
-const sheetName = "Youtube-education-parameter";
-const range = "A1";
-
-async function fetchParamsFromSheet() {
-  const now = Date.now();
-  // 1時間(3600000ms)以内ならキャッシュを使う
-  if (cachedParams && now - cachedAt < 3600000) {
-    return cachedParams;
-  }
-
-  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${sheetName}&range=${range}`;
+function destroyPlayer() {
+  playerReady = false;
+  endedHandled = false;
+  showUnmutePrompt.value = false;
+  clearRepeatRestartTimers();
+  if (!player) return;
   try {
-    const res = await fetch(url);
-    const text = await res.text();
-    const jsonStr = text.match(/google\.visualization\.Query\.setResponse\((.*)\);/s)[1];
-    const data = JSON.parse(jsonStr);
-    const params = data.table.rows?.[0]?.c?.[0]?.v;
-    if (!params) throw new Error("スプレッドシートに値がありません");
+    player.destroy();
+  } catch {}
+  player = null;
+}
 
-    // キャッシュ更新
-    cachedParams = params;
-    cachedAt = now;
+function handlePlayerEnded() {
+  if (endedHandled) return;
+  endedHandled = true;
 
-    return params;
-  } catch (err) {
-    console.warn("スプレッドシート取得失敗:", err);
-    return null; // 失敗したら null を返す
+  if (repeatEnabled.value && player) {
+    restartRepeatedVideo();
+    return;
+  }
+
+  try {
+    emit("ended");
+  } catch {}
+  pushToAutoplayHistory(props.videoId);
+  if (!autoplayEnabled.value) return;
+
+  const candidateId = getAutoplayCandidateId(props.videoId, {
+    onNoSuitableVideo: () => emit("autoplay-no-suitable-video"),
+  });
+  if (candidateId) emit("play-autoplay-candidate", { id: candidateId });
+}
+
+function scheduleRepeatRestartAttempt(delay, { seek = false } = {}) {
+  const timer = window.setTimeout(() => {
+    repeatRestartTimers.delete(timer);
+    if (!repeatEnabled.value || !player) return;
+    try {
+      if (player.getPlayerState?.() === 1) {
+        endedHandled = false;
+        clearRepeatRestartTimers();
+        return;
+      }
+      if (seek) player.seekTo(0, true);
+      player.playVideo();
+    } catch {}
+  }, delay);
+  repeatRestartTimers.add(timer);
+}
+
+function restartRepeatedVideo() {
+  clearRepeatRestartTimers();
+  if (!player) return;
+  try {
+    player.seekTo(0, true);
+    player.playVideo();
+  } catch {}
+  scheduleRepeatRestartAttempt(150);
+  scheduleRepeatRestartAttempt(500, { seek: true });
+  scheduleRepeatRestartAttempt(1000);
+}
+
+function hasStoredUserGesture() {
+  try {
+    return localStorage.getItem(USER_GESTURE_KEY) === "1";
+  } catch {
+    return false;
   }
 }
 
-async function fetchStream(id) {
+function startPlayerPlayback(target = player) {
+  if (!target) return;
+  try {
+    if (!hasStoredUserGesture()) {
+      target.mute();
+      showUnmutePrompt.value = true;
+    }
+    target.playVideo();
+  } catch {}
+}
+
+function handleUnmuteClick() {
+  try {
+    localStorage.setItem(USER_GESTURE_KEY, "1");
+  } catch {}
+  showUnmutePrompt.value = false;
+  try {
+    player?.unMute();
+    player?.playVideo();
+  } catch {}
+}
+
+function initializePlayer(sequence) {
+  if (
+    sequence !== requestSequence ||
+    !iframeRef.value ||
+    !window.YT ||
+    typeof window.YT.Player !== "function"
+  ) {
+    return;
+  }
+
+  destroyPlayer();
+  player = new window.YT.Player(iframeRef.value, {
+    events: {
+      onReady: (event) => {
+        if (sequence !== requestSequence) return;
+        playerReady = true;
+        if (autoplayEnabled.value || repeatEnabled.value) {
+          startPlayerPlayback(event.target);
+        }
+      },
+      onStateChange: (event) => {
+        if (sequence !== requestSequence) return;
+        if (event.data === 1) {
+          endedHandled = false;
+          clearRepeatRestartTimers();
+        }
+        if (event.data === 0) handlePlayerEnded();
+      },
+      onError: (event) => {
+        console.warn("YouTube Education Player API error:", event.data);
+      },
+    },
+  });
+}
+
+async function fetchFallbackStream(id, sequence) {
+  const data = await apiRequest({
+    params: { stream: id },
+    retries: 1,
+    timeout: 60000,
+    jsonpFallback: false,
+  });
+  if (sequence !== requestSequence) return;
+  if (!data?.url) throw new Error("ストリームURLが空です (JSON)");
+  streamUrl.value = data.url;
+  iframeRenderKey.value += 1;
+}
+
+async function fetchStream(id, forceRefresh = false) {
+  const sequence = ++requestSequence;
+  destroyPlayer();
   streamUrl.value = "";
   error.value = "";
   loading.value = true;
   iframeLoaded.value = false;
 
-  let params = await fetchParamsFromSheet();
-
-  // スプレッドシート取得できなかったら従来の apiRequest
-  if (!params) {
+  try {
+    let playerData = null;
     try {
-      const data = await apiRequest({
-        params: { stream: id },
-        retries: 1,
-        timeout: 60000,
-        jsonpFallback: false,
-      });
-      if (data && data.url) {
-        streamUrl.value = data.url;
-      } else {
-        error.value = "ストリームURLが空です (JSON)";
-      }
-      return;
-    } catch (err) {
-      if (err?.connectionFailure) {
-        error.value = err.message;
-      } else if (err && err.name === "AbortError") {
-        error.value = "ストリームURLの取得に失敗しました (タイムアウト)";
-      } else {
-        error.value = "ストリームURLの取得に失敗しました (fetch error)";
-      }
-      return;
-    } finally {
-      loading.value = false;
+      playerData = await loadYoutubeEducationPlayerData({ forceRefresh });
+    } catch (sheetError) {
+      console.warn("スプレッドシート取得失敗:", sheetError);
     }
-  }
+    if (sequence !== requestSequence) return;
 
-  // スプレッドシートから params が取れた場合
-  streamUrl.value = `https://www.youtubeeducation.com/embed/${id}${params}`;
-  loading.value = false;
+    if (!playerData) {
+      await fetchFallbackStream(id, sequence);
+      return;
+    }
+
+    streamUrl.value = createYoutubeEducationEmbedUrl(
+      id,
+      playerData.parameterText,
+      { autoplay: autoplayEnabled.value },
+    );
+    iframeRenderKey.value += 1;
+    await nextTick();
+    if (sequence !== requestSequence) return;
+
+    try {
+      await ensureYoutubeEducationPlayerApi(playerData.widgetApiSource);
+      await nextTick();
+      initializePlayer(sequence);
+    } catch (playerApiError) {
+      // 埋め込み自体は再生可能なので、APIだけ失敗した場合はiframeを残す。
+      console.warn("IFrame Player API初期化失敗:", playerApiError);
+    }
+  } catch (streamError) {
+    if (sequence !== requestSequence) return;
+    if (streamError?.connectionFailure) {
+      error.value = streamError.message;
+    } else if (streamError?.name === "AbortError") {
+      error.value = "ストリームURLの取得に失敗しました (タイムアウト)";
+    } else {
+      error.value = streamError?.message ||
+        "ストリームURLの取得に失敗しました (fetch error)";
+    }
+  } finally {
+    if (sequence === requestSequence) loading.value = false;
+  }
 }
+
+function reloadStream() {
+  fetchStream(props.videoId, true);
+}
+
+function handleAutoplaySettingChange(event) {
+  const enabled = event?.detail?.enabled;
+  const nextEnabled = typeof enabled === "boolean" ? enabled : loadAutoplay();
+  if (nextEnabled && repeatEnabled.value) repeatEnabled.value = false;
+  autoplayEnabled.value = nextEnabled;
+  if (autoplayEnabled.value && playerReady && player) {
+    startPlayerPlayback();
+  }
+}
+
+function showSettingsBox() {
+  settingsVisible.value = true;
+  if (settingsHideTimer !== null) window.clearTimeout(settingsHideTimer);
+  settingsHideTimer = window.setTimeout(() => {
+    settingsVisible.value = false;
+    settingsHideTimer = null;
+  }, 3000);
+}
+
+onMounted(() => {
+  window.addEventListener(AUTOPLAY_SETTING_EVENT, handleAutoplaySettingChange);
+  window.addEventListener("mousemove", showSettingsBox);
+  window.addEventListener("click", showSettingsBox);
+  window.addEventListener("scroll", showSettingsBox);
+  showSettingsBox();
+});
+
+onBeforeUnmount(() => {
+  requestSequence += 1;
+  window.removeEventListener(AUTOPLAY_SETTING_EVENT, handleAutoplaySettingChange);
+  window.removeEventListener("mousemove", showSettingsBox);
+  window.removeEventListener("click", showSettingsBox);
+  window.removeEventListener("scroll", showSettingsBox);
+  if (settingsHideTimer !== null) window.clearTimeout(settingsHideTimer);
+  destroyPlayer();
+});
+
+watch(repeatEnabled, (enabled) => {
+  if (enabled) {
+    autoplayEnabled.value = false;
+    if (playerReady) startPlayerPlayback();
+  } else {
+    clearRepeatRestartTimers();
+  }
+});
+
+watch(autoplayEnabled, (enabled) => {
+  saveAutoplay(enabled);
+});
 
 watch(
   () => props.videoId,
   (newId) => {
     if (newId) fetchStream(newId);
   },
-  { immediate: true }
+  { immediate: true },
 );
 </script>
 
@@ -130,12 +370,60 @@ watch(
   background: #000;
   overflow: hidden;
 }
-.video-container iframe {
+.player-host {
+  position: absolute;
+  inset: 0;
+}
+.player-host iframe {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
+}
+.settings-box {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 20;
+  box-sizing: border-box;
+  min-width: 140px;
+  padding: 10px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--on-accent);
+  font-size: 14px;
+  transition: opacity 0.3s ease;
+}
+.autoplay-disabled {
+  position: relative;
+  color: rgba(255, 255, 255, 0.5);
+}
+.autoplay-disabled::after {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.6);
+  content: "";
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+.unmute-prompt {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 50;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.6);
+  color: var(--on-accent);
+  cursor: pointer;
+  backdrop-filter: blur(4px);
 }
 .error-box {
   color: var(--accent-weak);
@@ -151,7 +439,7 @@ watch(
   border-radius: 6px;
   cursor: pointer;
   transition: background-color 0.2s ease;
-  width: 50%;
+  width: 60%;
 }
 .reload-button:hover {
   background: var(--text-secondary-hover);

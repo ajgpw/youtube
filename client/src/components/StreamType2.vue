@@ -59,6 +59,18 @@
           <input type="checkbox" v-model="autoplayEnabled" :disabled="repeatEnabled" />
         </label>
 
+        <button
+          type="button"
+          class="pip-button"
+          :disabled="!pictureInPictureSupported"
+          :title="pictureInPictureSupported
+            ? 'ピクチャインピクチャを切り替える'
+            : 'この動画またはブラウザはピクチャインピクチャに対応していません'"
+          @click="togglePictureInPicture"
+        >
+          {{ pictureInPictureActive ? "PiPを終了" : "ピクチャインピクチャ" }}
+        </button>
+
         <label>
           画質:
           <select v-model="selectedQuality" class="selector">
@@ -158,6 +170,18 @@
             <input type="checkbox" v-model="autoplayEnabled" :disabled="repeatEnabled" />
         </label>
 
+        <button
+          type="button"
+          class="pip-button"
+          :disabled="!pictureInPictureSupported"
+          :title="pictureInPictureSupported
+            ? 'ピクチャインピクチャを切り替える'
+            : 'この動画またはブラウザはピクチャインピクチャに対応していません'"
+          @click="togglePictureInPicture"
+        >
+          {{ pictureInPictureActive ? "PiPを終了" : "ピクチャインピクチャ" }}
+        </button>
+
         <label>
           画質:
           <select v-model="selectedQuality" class="selector">
@@ -217,7 +241,16 @@ import {
   extractSubtitleTracks,
   normalizeStreamFormats,
 } from "@/utils/siatubeAdapters";
-import { loadPreferredQuality } from "@/utils/settingsManager";
+import {
+  AUTOPLAY_SETTING_EVENT,
+  loadAutoplay,
+  loadPreferredQuality,
+  saveAutoplay,
+} from "@/utils/settingsManager";
+import {
+  getAutoplayCandidateId as selectAutoplayCandidateId,
+  pushToAutoplayHistory,
+} from "@/utils/autoplayManager";
 import { loadHlsConstructor } from "@/utils/hlsLoader";
 import {
   localizeSubtitleTracks,
@@ -274,6 +307,16 @@ const playbackRates = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3, 4];
 const diffText = ref("0");
 const videoRef = ref(null);
 const audioRef = ref(null);
+const pictureInPictureActive = ref(false);
+const pictureInPictureSupported = computed(() => {
+  const video = videoRef.value;
+  if (!video) return false;
+  return Boolean(
+    (document.pictureInPictureEnabled &&
+      typeof video.requestPictureInPicture === 'function') ||
+    typeof video.webkitSetPresentationMode === 'function'
+  );
+});
 const separateAvKey = ref(0);
 // サーバー応答後に media 要素を確実に作り直すためのキー。
 // 待機画面から復帰するときに古い video/audio の内部状態を持ち越さない。
@@ -283,20 +326,7 @@ let initialPlaybackRecoveryTimer = null;
 let initialPlaybackRecovery = null;
 let initialPlaybackRecoveryRunning = false;
 const repeatEnabled = ref(false);
-// デフォルトはオフ
-const AUTOPLAY_SETTING_KEY = 'yt_autoplay_enabled_v1';
-function loadAutoplaySetting() {
-  try {
-    const v = localStorage.getItem(AUTOPLAY_SETTING_KEY);
-    if (v === null) return false; // default off
-    return v === '1' ? true : false;
-  } catch (e) { return false; }
-}
-function saveAutoplaySetting(val) {
-  try { localStorage.setItem(AUTOPLAY_SETTING_KEY, val ? '1' : '0'); } catch (e) {}
-}
-
-const autoplayEnabled = ref(loadAutoplaySetting());
+const autoplayEnabled = ref(loadAutoplay());
 const loading = ref(false);
 const streamServerStatus = ref(null);
 const streamStatusError = ref(false);
@@ -469,7 +499,7 @@ async function recoverInitialPlayback() {
 const endedHandler = {
   fn: async () => {
     try { emit('ended'); } catch (e) {}
-    try { pushToHistory(props.videoId); } catch (e) {}
+    try { pushToAutoplayHistory(props.videoId); } catch (e) {}
     if (!autoplayEnabled.value) return;
     try {
       const candId = getAutoplayCandidateId();
@@ -480,86 +510,76 @@ const endedHandler = {
 };
 
 let _onEnded = async () => { await endedHandler.fn(); };
-const PLAY_HISTORY_KEY = 'yt_play_history_v1';
-
-function loadPlayHistory() {
-  try {
-    const s = localStorage.getItem(PLAY_HISTORY_KEY);
-    return s ? JSON.parse(s) : [];
-  } catch (e) { return []; }
-}
-
-function savePlayHistory(arr) {
-  try { localStorage.setItem(PLAY_HISTORY_KEY, JSON.stringify(arr.slice(-3))); } catch (e) {}
-}
-
-function pushToHistory(id) {
-  if (!id) return;
-  try {
-    const h = loadPlayHistory();
-    if (h[h.length - 1] === id) return;
-    h.push(id);
-    savePlayHistory(h);
-  } catch (e) {}
-}
 
 // 自動再生候補選定
 // window.__autoplayCandidates があればそこから選ぶ。ないなら DOM の data-video-id から選ぶ。
 function getAutoplayCandidateId() {
+  return selectAutoplayCandidateId(props.videoId, {
+    onNoSuitableVideo: () => emit('autoplay-no-suitable-video'),
+  });
+}
+
+function handleAutoplaySettingChange(event) {
+  const enabled = event?.detail?.enabled;
+  const nextEnabled = typeof enabled === 'boolean' ? enabled : loadAutoplay();
+  if (nextEnabled && repeatEnabled.value) repeatEnabled.value = false;
+  autoplayEnabled.value = nextEnabled;
+  applyRepeatAndAutoplay();
+  if (autoplayEnabled.value) scheduleAutoplay();
+  else cancelAutoplay();
+}
+
+function updatePictureInPictureState() {
+  const video = videoRef.value;
+  pictureInPictureActive.value = Boolean(
+    video && (
+      document.pictureInPictureElement === video ||
+      video.webkitPresentationMode === 'picture-in-picture'
+    )
+  );
+}
+
+function attachPictureInPictureListeners(video) {
+  if (!video) return;
+  video.addEventListener('enterpictureinpicture', updatePictureInPictureState);
+  video.addEventListener('leavepictureinpicture', updatePictureInPictureState);
+  video.addEventListener('webkitpresentationmodechanged', updatePictureInPictureState);
+}
+
+function detachPictureInPictureListeners(video) {
+  if (!video) return;
+  video.removeEventListener('enterpictureinpicture', updatePictureInPictureState);
+  video.removeEventListener('leavepictureinpicture', updatePictureInPictureState);
+  video.removeEventListener('webkitpresentationmodechanged', updatePictureInPictureState);
+}
+
+async function togglePictureInPicture() {
+  const video = videoRef.value;
+  if (!video || !pictureInPictureSupported.value) return;
+
   try {
-    const recent = new Set(loadPlayHistory());
-    // avoid current video
-    recent.add(props.videoId);
-
-    // Get filter settings
-    const filterConfig = window.__autoplayDurationFilter || { enabled: false, maxSeconds: 240 };
-    const maxSeconds = filterConfig.enabled ? filterConfig.maxSeconds : Infinity;
-
-    // Helper function to check if a video passes duration filter
-    function passesFilter(durationStr) {
-      if (!filterConfig.enabled) {
-        return true; // No filter
+    if (
+      document.pictureInPictureEnabled &&
+      typeof video.requestPictureInPicture === 'function'
+    ) {
+      if (document.pictureInPictureElement === video) {
+        await document.exitPictureInPicture();
+      } else {
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+        }
+        await video.requestPictureInPicture();
       }
-      if (!durationStr) {
-        return true; // No duration info, allow it
-      }
-      const duration = parseInt(durationStr, 10);
-      if (isNaN(duration)) {
-        return true; // Invalid duration, allow it
-      }
-      return duration <= maxSeconds;
+    } else if (typeof video.webkitSetPresentationMode === 'function') {
+      const nextMode = video.webkitPresentationMode === 'picture-in-picture'
+        ? 'inline'
+        : 'picture-in-picture';
+      video.webkitSetPresentationMode(nextMode);
     }
-
-    // list from window variable
-    if (Array.isArray(window.__autoplayCandidates)) {
-      for (const id of window.__autoplayCandidates) {
-        if (!recent.has(id) && id) return id;
-      }
-    }
-
-    // DOM: elements with data-video-id
-    const els = document.querySelectorAll('[data-video-id]');
-    let foundAnyVideo = false;
-    for (const el of els) {
-      const id = el.getAttribute('data-video-id');
-      const durationStr = el.getAttribute('data-duration');
-      
-      if (!id) continue;
-      if (recent.has(id)) continue;
-      
-      foundAnyVideo = true;
-      
-      // Check duration filter - MUST pass filter to be selected
-      if (!passesFilter(durationStr)) {
-        continue; // Skip this video, duration exceeds limit or invalid
-      }
-      return id; // Found a suitable candidate
-    }
-    
-    // No suitable candidate found - signal to parent
-    if (foundAnyVideo && filterConfig.enabled) emit('autoplay-no-suitable-video');
-  } catch (e) {}
-  return null;
+    updatePictureInPictureState();
+  } catch (pipError) {
+    console.warn('Picture-in-Picture failed:', pipError);
+  }
 }
 
 const nativeHlsSupported = ref(false);
@@ -600,6 +620,7 @@ onMounted(() => {
   window.addEventListener('mousemove', showSettingsBox);
   window.addEventListener('click', showSettingsBox);
   window.addEventListener('scroll', showSettingsBox);
+  window.addEventListener(AUTOPLAY_SETTING_EVENT, handleAutoplaySettingChange);
   // attach loop timeupdate handler if video element exists
   try {
     if (videoRef.value) videoRef.value.addEventListener('timeupdate', onTimeUpdateLoopHandler);
@@ -617,10 +638,12 @@ onBeforeUnmount(() => {
   try { cancelAutoplay(); } catch (e) {}
   try { detachBufferListeners(); } catch (e) {}
   try { detachLoopBufferListeners(); } catch (e) {}
+  try { detachPictureInPictureListeners(videoRef.value); } catch (e) {}
   try {
     window.removeEventListener('mousemove', showSettingsBox);
     window.removeEventListener('click', showSettingsBox);
     window.removeEventListener('scroll', showSettingsBox);
+    window.removeEventListener(AUTOPLAY_SETTING_EVENT, handleAutoplaySettingChange);
   } catch (e) {}
   try {
     if (videoRef.value) videoRef.value.removeEventListener('timeupdate', onTimeUpdateLoopHandler);
@@ -766,7 +789,7 @@ function showSettingsBox() {
   try {
     settingsVisible.value = true;
     clearTimeout(showSettingsBox._hideTimer);
-    showSettingsBox._hideTimer = setTimeout(() => { settingsVisible.value = false; }, 3500);
+    showSettingsBox._hideTimer = setTimeout(() => { settingsVisible.value = false; }, 3000);
   } catch (e) {}
 }
 showSettingsBox._hideTimer = null;
@@ -965,7 +988,7 @@ watch(repeatEnabled, (newVal) => {
 
 // persist autoplay setting across videos
 watch(autoplayEnabled, (val) => {
-  try { saveAutoplaySetting(!!val); } catch (e) {}
+  try { saveAutoplay(!!val); } catch (e) {}
 });
 
 function clearType2SrcRepeated() {
@@ -1426,12 +1449,15 @@ watch(selectedPlaybackRate, () => {
 
 // videoRef の変化を監視して ended リスナの attach/detach を行う
 watch(videoRef, (newEl, oldEl) => {
+  detachPictureInPictureListeners(oldEl);
   if (oldEl && _onEndedAttached) {
     try { oldEl.removeEventListener('ended', _onEnded); } catch (e) {}
     _onEndedAttached = false;
   }
   if (newEl) {
     try {
+      attachPictureInPictureListeners(newEl);
+      updatePictureInPictureState();
       // リスナ追加前に既存のものがあれば削除
       newEl.removeEventListener('ended', _onEnded);
       newEl.addEventListener('ended', _onEnded);
@@ -1439,6 +1465,7 @@ watch(videoRef, (newEl, oldEl) => {
       applySubtitleTracks(newEl, subtitleTracks.value);
     } catch (e) {}
   }
+  if (!newEl) pictureInPictureActive.value = false;
 }, { flush: 'post' });
 
 </script>
@@ -1653,6 +1680,22 @@ watch(videoRef, (newEl, oldEl) => {
 }
 .reload-button:hover {
   background: var(--text-secondary-hover);
+}
+.pip-button {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--text-type2-reload);
+  color: var(--on-accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+.pip-button:hover:not(:disabled) {
+  background: var(--text-secondary-hover);
+}
+.pip-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 audio {
   display: none;

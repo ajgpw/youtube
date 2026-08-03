@@ -4,6 +4,7 @@
 
 const STORAGE_KEYS = {
   DEFAULT_PLAYBACK: 'defaultPlaybackMode',
+  AUTOPLAY_ENABLED: 'yt_autoplay_enabled_v1',
   SHORT_VIDEO_FILTER_ENABLED: 'shortVideoFilterEnabled',
   SHORT_VIDEO_FILTER_MINUTES: 'shortVideoFilterMinutes',
   DARK_MODE: 'darkMode',
@@ -14,9 +15,12 @@ const STORAGE_KEYS = {
 
 const DEFAULTS = {
   DEFAULT_PLAYBACK_MODE: '1',
+  AUTOPLAY_ENABLED: true,
   SHORT_VIDEO_MINUTES: 4,
   PREFERRED_QUALITY: 'auto',
 };
+
+export const AUTOPLAY_SETTING_EVENT = 'yt-autoplay-setting-changed';
 
 function safeSetItem(key, value) {
   try {
@@ -90,6 +94,42 @@ export function loadDefaultPlayback() {
   } catch (e) {
     console.error('loadDefaultPlayback error', e);
     return DEFAULTS.DEFAULT_PLAYBACK_MODE;
+  }
+}
+
+/**
+ * 動画の自動再生設定を保存する。
+ * 既存のタイプ2が使用していた 1/0 形式を維持する。
+ * @param {boolean} enabled
+ */
+export function saveAutoplay(enabled) {
+  const value = !!enabled;
+  try {
+    localStorage.setItem(STORAGE_KEYS.AUTOPLAY_ENABLED, value ? '1' : '0');
+  } catch (e) {
+    console.error('saveAutoplay error', e);
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(AUTOPLAY_SETTING_EVENT, {
+      detail: { enabled: value },
+    }));
+  } catch {}
+}
+
+/**
+ * 動画の自動再生設定を読み込む。デフォルトはオン。
+ * @returns {boolean}
+ */
+export function loadAutoplay() {
+  try {
+    const stored = safeGetItem(STORAGE_KEYS.AUTOPLAY_ENABLED, null);
+    if (stored === null || stored === undefined) {
+      return DEFAULTS.AUTOPLAY_ENABLED;
+    }
+    return stored === true || stored === 1 || stored === '1';
+  } catch (e) {
+    console.error('loadAutoplay error', e);
+    return DEFAULTS.AUTOPLAY_ENABLED;
   }
 }
 
@@ -258,6 +298,8 @@ export function computeIsDarkFromMode(mode) {
 export default {
   saveDefaultPlayback,
   loadDefaultPlayback,
+  saveAutoplay,
+  loadAutoplay,
   saveShortVideoFilter,
   loadShortVideoFilter,
   saveDisplayMode,

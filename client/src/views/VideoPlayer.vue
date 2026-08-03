@@ -560,6 +560,7 @@ import AutoplayNotification from "@/components/AutoplayNotification.vue";
 import PlaylistModal from "@/components/PlaylistModal.vue";
 import CollaboratorsPopup from "@/components/CollaboratorsPopup.vue";
 import subscriptionManager from "@/utils/subscriptionManager";
+import { loadAutoplay } from "@/utils/settingsManager";
 
 export default {
   components: {
@@ -914,10 +915,12 @@ export default {
             this._autoplayDecisionTimer = null;
           }
         } catch (e) {}
+        if (!loadAutoplay()) return;
 
         // 少し待って（他のイベントが到着するのを待つ）から遷移タイマーをセット
         this._autoplayDecisionTimer = setTimeout(() => {
           try {
+            if (!loadAutoplay()) return;
             // 自動再生ロックがある場合はスケジュールを抑止
             const lockRaw = (() => {
               try {
@@ -944,6 +947,7 @@ export default {
             }
 
             this._autoplayTimer = setTimeout(() => {
+              if (!loadAutoplay()) return;
               const activePlaylistId = this.$route.query.list;
               if (activePlaylistId) {
                 if (!this.nextPlaylistVideoId) return;
@@ -981,6 +985,7 @@ export default {
 
     onPlayAutoplayCandidate({ id }) {
       try {
+        if (!loadAutoplay()) return;
         const activePlaylistId = this.$route.query.list;
         if (activePlaylistId && !this.nextPlaylistVideoId) return;
         const targetId =

@@ -170,34 +170,50 @@
           <small>自動、または指定解像度がない場合は自動選択になります</small>
         </section>
 
-        <!-- 短動画フィルタ設定 -->
+        <!-- 自動再生設定 -->
         <section class="settings-section">
-          <h3>自動再生フィルタ</h3>
-          <label>
-            <input
-              type="checkbox"
-              :checked="shortVideoFilterEnabled"
-              @change="handleFilterEnabledChange($event.target.checked)"
-            />
-            指定時間以下の動画のみ自動再生
-          </label>
-          <div v-if="shortVideoFilterEnabled" class="filter-time">
+          <h3>自動再生</h3>
+          <div class="autoplay-setting-group">
+            <h4>自動再生モード</h4>
             <label>
-              制限時間（分）:
               <input
-                type="number"
-                :value="shortVideoFilterMinutes"
-                @change="handleFilterMinutesChange(+$event.target.value)"
-                min="1"
-                max="120"
-                step="1"
-              /> </label
-            ><br />
-            <small
-              >{{
-                shortVideoFilterMinutes
-              }}分以下の動画のみが自動再生対象になります</small
-            >
+                type="checkbox"
+                :checked="autoplayEnabled"
+                @change="handleAutoplayChange($event.target.checked)"
+              />
+              自動再生を有効にする
+            </label>
+            <small>動画の再生開始と、終了後の次の動画への移動を自動化します</small>
+          </div>
+
+          <div class="autoplay-setting-group">
+            <h4>自動再生フィルタ</h4>
+            <label>
+              <input
+                type="checkbox"
+                :checked="shortVideoFilterEnabled"
+                @change="handleFilterEnabledChange($event.target.checked)"
+              />
+              指定時間以下の動画のみ自動再生
+            </label>
+            <div v-if="shortVideoFilterEnabled" class="filter-time">
+              <label>
+                制限時間（分）:
+                <input
+                  type="number"
+                  :value="shortVideoFilterMinutes"
+                  @change="handleFilterMinutesChange(+$event.target.value)"
+                  min="1"
+                  max="120"
+                  step="1"
+                /> </label
+              ><br />
+              <small
+                >{{
+                  shortVideoFilterMinutes
+                }}分以下の動画のみが自動再生対象になります</small
+              >
+            </div>
           </div>
         </section>
 
@@ -318,6 +334,8 @@ import {
 import {
   loadDefaultPlayback,
   saveDefaultPlayback,
+  loadAutoplay,
+  saveAutoplay,
   loadShortVideoFilter,
   saveShortVideoFilter,
   loadDisplayMode,
@@ -355,6 +373,7 @@ const requestProxySuccessDescription =
 
 // Settings state
 const defaultPlaybackMode = ref("1");
+const autoplayEnabled = ref(true);
 const shortVideoFilterEnabled = ref(false);
 const shortVideoFilterMinutes = ref(4);
 const displayMode = ref("device");
@@ -407,6 +426,7 @@ onMounted(() => {
   watch(
     [
       defaultPlaybackMode,
+      autoplayEnabled,
       shortVideoFilterEnabled,
       shortVideoFilterMinutes,
       displayMode,
@@ -451,6 +471,7 @@ const requestProxyUrlError = computed(() => {
 // モーダルを開いた時点の状態をバックアップ
 watch(modalIsOpen, (open) => {
   if (open) {
+    autoplayEnabled.value = loadAutoplay();
     const savedProxyUrl = loadRequestProxy().url;
     requestProxyJsonpEnabled.value = loadRequestProxyJsonp();
     requestProxyUrl.value = savedProxyUrl;
@@ -469,6 +490,7 @@ watch(displayMode, (v) => {
 const loadSettings = () => {
   requestProxyUrl.value = loadRequestProxy().url;
   requestProxyJsonpEnabled.value = loadRequestProxyJsonp();
+  autoplayEnabled.value = loadAutoplay();
 
   // First try to load from localStorage
   try {
@@ -479,6 +501,10 @@ const loadSettings = () => {
         savedSettings.shortVideoFilterEnabled || false;
       shortVideoFilterMinutes.value =
         savedSettings.shortVideoFilterMinutes || 4;
+      saveShortVideoFilter(
+        shortVideoFilterEnabled.value,
+        shortVideoFilterMinutes.value,
+      );
       displayMode.value = savedSettings.displayMode || "device";
       preferredQuality.value = savedSettings.preferredQuality || "auto";
       return;
@@ -517,6 +543,7 @@ const loadSettings = () => {
 const saveBackup = () => {
   backupState.value = {
     defaultPlaybackMode: defaultPlaybackMode.value,
+    autoplayEnabled: autoplayEnabled.value,
     shortVideoFilterEnabled: shortVideoFilterEnabled.value,
     shortVideoFilterMinutes: shortVideoFilterMinutes.value,
     displayMode: displayMode.value,
@@ -538,6 +565,11 @@ const closeSettings = () => {
 const handlePlaybackModeChange = (newMode) => {
   defaultPlaybackMode.value = newMode;
   saveDefaultPlayback(newMode);
+};
+
+const handleAutoplayChange = (enabled) => {
+  autoplayEnabled.value = !!enabled;
+  saveAutoplay(autoplayEnabled.value);
 };
 
 const handleFilterEnabledChange = (enabled) => {
@@ -730,6 +762,7 @@ const saveToLocalStorage = () => {
   try {
     const settingsData = {
       defaultPlaybackMode: defaultPlaybackMode.value,
+      autoplayEnabled: autoplayEnabled.value,
       shortVideoFilterEnabled: shortVideoFilterEnabled.value,
       shortVideoFilterMinutes: shortVideoFilterMinutes.value,
       disableTimeouts: disableTimeouts.value,
@@ -871,6 +904,28 @@ const clearLocalStorage = () => {
   margin: 0 0 12px 0;
   font-size: 1rem;
   color: var(--text-primary);
+}
+
+.autoplay-setting-group {
+  display: grid;
+  gap: 6px;
+}
+
+.autoplay-setting-group + .autoplay-setting-group {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.autoplay-setting-group h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.autoplay-setting-group > small {
+  color: var(--text-secondary);
+  line-height: 1.45;
 }
 
 .settings-section input.proxy-url-input {
